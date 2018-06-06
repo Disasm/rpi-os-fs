@@ -13,7 +13,7 @@ pub struct CHS {
 #[repr(C, packed)]
 #[derive(Debug, Clone)]
 pub struct PartitionEntry {
-    flag: u8,
+    boot_indicator: u8,
     start_chs: CHS,
     entry_type: u8,
     end_chs: CHS,
@@ -26,7 +26,7 @@ pub struct PartitionEntry {
 pub struct MasterBootRecord {
     _data: [u8; 446],
     entries: [PartitionEntry; 4],
-    boot_indicator: u16,
+    signature: u16,
 }
 
 #[derive(Debug)]
@@ -51,7 +51,15 @@ impl MasterBootRecord {
     pub fn from<T: BlockDevice>(mut device: T) -> Result<MasterBootRecord, Error> {
         let mut buf = [0; 512];
         let size = device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
-        let mbr = unsafe { ::std::mem::transmute(buf) };
+        let mbr: MasterBootRecord = unsafe { ::std::mem::transmute(buf) };
+        if mbr.signature != 0xAA55 {
+            return Err(Error::BadSignature)
+        }
+        for (i, entry) in mbr.entries.iter().enumerate() {
+            if entry.boot_indicator != 0x00 && entry.boot_indicator != 0x80 {
+                return Err(Error::UnknownBootIndicator(i as u8))
+            }
+        }
         Ok(mbr)
     }
 }
