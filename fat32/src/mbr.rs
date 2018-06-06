@@ -3,21 +3,30 @@ use std::{fmt, io};
 use traits::BlockDevice;
 
 #[repr(C, packed)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct CHS {
-    // FIXME: Fill me in.
+    c: u8,
+    h: u8,
+    s: u8,
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Clone)]
 pub struct PartitionEntry {
-    // FIXME: Fill me in.
+    flag: u8,
+    start_chs: CHS,
+    entry_type: u8,
+    end_chs: CHS,
+    start_lba: u32,
+    size: u32,
 }
 
 /// The master boot record (MBR).
 #[repr(C, packed)]
 pub struct MasterBootRecord {
-    // FIXME: Fill me in.
+    _data: [u8; 446],
+    entries: [PartitionEntry; 4],
+    boot_indicator: u16,
 }
 
 #[derive(Debug)]
@@ -40,7 +49,10 @@ impl MasterBootRecord {
     /// boot indicator. Returns `Io(err)` if the I/O error `err` occured while
     /// reading the MBR.
     pub fn from<T: BlockDevice>(mut device: T) -> Result<MasterBootRecord, Error> {
-        unimplemented!("MasterBootRecord::from()")
+        let mut buf = [0; 512];
+        let size = device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
+        let mbr = unsafe { ::std::mem::transmute(buf) };
+        Ok(mbr)
     }
 }
 
