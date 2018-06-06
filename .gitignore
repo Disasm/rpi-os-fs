@@ -152,3 +152,7 @@ Temporary Items
 # Assignment 2 specific
 resources/
 files/
+
+# IDEA files
+.idea
+*.iml
