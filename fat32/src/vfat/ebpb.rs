@@ -5,23 +5,39 @@ use vfat::Error;
 
 #[repr(C, packed)]
 pub struct BiosParameterBlock {
-    _data: [u8; 0xb],
-    _legacy_bpb: [u8; 25],
-    logical_sectors_per_fat: u32,
-    mirroring_flags: u16,
-    version: u16,
-    root_directory_cluster: u32,
-    fs_information_sector_location: u16,
-    backup_sector_location: u16,
-    _reserved: [u8; 12],
-    physical_driver_number: u8,
-    flags: u8,
-    extended_boot_signature: u8,
-    volume_serial_number: u32,
-    volume_label: [u8; 11],
-    fs_type: [u8; 8],
-    _data2: [u8; 420],
-    signature: u16,
+    pub _data: [u8; 0xb],
+    // DOS 2.0 BPB
+    pub bytes_per_logical_sector: u16,
+    pub logical_sectors_per_cluster: u8,
+    pub reserved_logical_sectors: u16,
+    pub number_of_fats: u8,
+    pub root_directory_entries: u16,
+    pub total_logical_sectors: u16,
+    pub media_descriptor: u8,
+    pub _logical_sectors_per_fat_legacy: u16,
+
+    // DOS 3.31 BPB
+    pub physical_sectors_per_track: u16,
+    pub number_of_heads: u16,
+    pub hidden_sectors: u32,
+    pub large_total_logical_sectors: u32,
+
+    // DOS 7.1 EBPB
+    pub logical_sectors_per_fat: u32,
+    pub mirroring_flags: u16,
+    pub version: u16,
+    pub root_directory_cluster: u32,
+    pub fs_information_sector_location: u16,
+    pub backup_sector_location: u16,
+    pub _reserved: [u8; 12],
+    pub physical_driver_number: u8,
+    pub flags: u8,
+    pub extended_boot_signature: u8,
+    pub volume_serial_number: u32,
+    pub volume_label: [u8; 11],
+    pub fs_type: [u8; 8],
+    pub _data2: [u8; 420],
+    pub signature: u16,
 }
 
 impl BiosParameterBlock {
@@ -31,12 +47,11 @@ impl BiosParameterBlock {
     /// # Errors
     ///
     /// If the EBPB signature is invalid, returns an error of `BadSignature`.
-    pub fn from<T: BlockDevice>(
-        mut device: T,
-        sector: u64
+    pub fn read_from<T: BlockDevice>(
+        device: &mut T
     ) -> Result<BiosParameterBlock, Error> {
         let mut buf = [0; 512];
-        let size = device.read_sector(sector, &mut buf).map_err(|e| Error::Io(e))?;
+        let size = device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
         let pbp: BiosParameterBlock = unsafe { ::std::mem::transmute(buf) };
         if pbp.signature != 0xAA55 {
             return Err(Error::BadSignature)

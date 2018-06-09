@@ -5,7 +5,7 @@ use std::io;
 
 use traits;
 use util::VecExt;
-use vfat::{VFat, Shared, File, Cluster, Entry};
+use vfat::{VFat, Shared, File, Entry};
 use vfat::{Metadata, Attributes, Timestamp, Time, Date};
 
 #[derive(Debug)]

@@ -2,6 +2,7 @@
 #![feature(range_contains)]
 #![allow(safe_packed_borrows)]
 #![feature(use_nested_groups)]
+#![feature(dotdoteq_in_patterns)]
 
 #[cfg(not(target_endian="little"))]
 compile_error!("only little endian platforms supported");

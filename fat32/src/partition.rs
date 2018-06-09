@@ -2,16 +2,16 @@ use std::ops::Range;
 use traits::BlockDevice;
 use std::io;
 
-type SectorRange = Range<u64>;
+pub type SectorRange = Range<u64>;
 
 
-struct Partition<T: BlockDevice> {
+pub struct Partition<T: BlockDevice> {
     source: T,
     sector_range: SectorRange,
 }
 
 impl<T: BlockDevice> Partition<T> {
-    fn new(source: T, sector_range: SectorRange) -> Self {
+    pub fn new(source: T, sector_range: SectorRange) -> Self {
         Partition {
             source, sector_range
         }

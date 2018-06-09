@@ -1,6 +1,6 @@
 use traits::BlockDevice;
 use std::io;
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::HashMap;
 use std::cmp::min;
 
 

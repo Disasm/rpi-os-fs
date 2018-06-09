@@ -1,6 +1,7 @@
 use std::{fmt, io};
 
 use traits::BlockDevice;
+use partition::Partition;
 
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
@@ -48,7 +49,7 @@ impl MasterBootRecord {
     /// Returns `UnknownBootIndicator(n)` if partition `n` contains an invalid
     /// boot indicator. Returns `Io(err)` if the I/O error `err` occured while
     /// reading the MBR.
-    pub fn from<T: BlockDevice>(mut device: T) -> Result<MasterBootRecord, Error> {
+    pub fn read_from<T: BlockDevice>(device: &mut T) -> Result<MasterBootRecord, Error> {
         let mut buf = [0; 512];
         let size = device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
         let mbr: MasterBootRecord = unsafe { ::std::mem::transmute(buf) };
@@ -62,6 +63,20 @@ impl MasterBootRecord {
         }
         Ok(mbr)
     }
+}
+
+pub fn get_partition<T: BlockDevice>(mut device: T, partition_number: usize) -> io::Result<Partition<T>> {
+    if partition_number >= 4 {
+        return Err(io::ErrorKind::InvalidInput.into());
+    }
+    let mbr = MasterBootRecord::read_from(&mut device).map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+    let entry = &mbr.entries[partition_number];
+    if entry.entry_type == 0 {
+        return Err(io::ErrorKind::NotFound.into());
+    }
+    let sector_start = entry.start_lba as u64;
+    let sector_end = sector_start + entry.size as u64;
+    Ok(Partition::new(device, sector_start..sector_end))
 }
 
 impl fmt::Debug for MasterBootRecord {
