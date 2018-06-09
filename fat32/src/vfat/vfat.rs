@@ -6,12 +6,12 @@ use std::cmp::min;
 use util::SliceExt;
 use mbr::MasterBootRecord;
 use vfat::{Shared, Cluster, File, Dir, Entry, FatEntry, Error, Status};
-use vfat::{BiosParameterBlock, CachedDevice, Partition};
+use vfat::{BiosParameterBlock};
 use traits::{FileSystem, BlockDevice};
+use vfat::logical_block_device::LogicalBlockDevice;
 
-#[derive(Debug)]
-pub struct VFat {
-    device: CachedDevice,
+pub struct VFat<T: BlockDevice> {
+    device: LogicalBlockDevice<T>,
     bytes_per_sector: u16,
     sectors_per_cluster: u8,
     sectors_per_fat: u32,
@@ -20,9 +20,8 @@ pub struct VFat {
     root_dir_cluster: Cluster,
 }
 
-impl VFat {
-    pub fn from<T>(mut device: T) -> Result<Shared<VFat>, Error>
-        where T: BlockDevice + 'static
+impl<T: BlockDevice> VFat<T> {
+    pub fn from(mut device: T) -> Result<Shared<VFat<T>>, Error>
     {
         unimplemented!("VFat::from()")
     }
@@ -53,7 +52,7 @@ impl VFat {
     //    fn fat_entry(&mut self, cluster: Cluster) -> io::Result<&FatEntry>;
 }
 
-impl<'a> FileSystem for &'a Shared<VFat> {
+impl<'a, T: BlockDevice> FileSystem for &'a Shared<VFat<T>> {
     type File = ::traits::Dummy;
     type Dir = ::traits::Dummy;
     type Entry = ::traits::Dummy;

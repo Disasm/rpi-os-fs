@@ -186,7 +186,7 @@ fn hash_dir<T: Dir>(
     Ok(entries)
 }
 
-fn hash_dir_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
+fn hash_dir_from<P: AsRef<Path>, T: BlockDevice>(vfat: Shared<VFat<T>>, path: P) -> String {
     let mut hash = String::new();
     hash_dir(&mut hash, vfat.open_dir(path).expect("directory exists")).unwrap();
     hash
@@ -207,9 +207,9 @@ fn test_root_entries() {
     assert_hash_eq!("mock 4 root directory", hash, hash_for!("root-entries-4"));
 }
 
-fn hash_dir_recursive<P: AsRef<Path>>(
+fn hash_dir_recursive<P: AsRef<Path>, T: BlockDevice>(
     hash: &mut String,
-    vfat: Shared<VFat>,
+    vfat: Shared<VFat<T>>,
     path: P
 ) -> ::std::fmt::Result {
     use std::fmt::Write;
@@ -233,7 +233,7 @@ fn hash_dir_recursive<P: AsRef<Path>>(
     Ok(())
 }
 
-fn hash_dir_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
+fn hash_dir_recursive_from<P: AsRef<Path>, T: BlockDevice>(vfat: Shared<VFat<T>>, path: P) -> String {
     let mut hash = String::new();
     hash_dir_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -283,9 +283,9 @@ fn hash_file<T: File>(hash: &mut String, mut file: T) -> ::std::fmt::Result {
     write!(hash, "{}", hasher.finish())
 }
 
-fn hash_files_recursive<P: AsRef<Path>>(
+fn hash_files_recursive<P: AsRef<Path>, T: BlockDevice>(
     hash: &mut String,
-    vfat: Shared<VFat>,
+    vfat: Shared<VFat<T>>,
     path: P
 ) -> ::std::fmt::Result {
     let path = path.as_ref();
@@ -314,7 +314,7 @@ fn hash_files_recursive<P: AsRef<Path>>(
     Ok(())
 }
 
-fn hash_files_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
+fn hash_files_recursive_from<P: AsRef<Path>, T: BlockDevice>(vfat: Shared<VFat<T>>, path: P) -> String {
     let mut hash = String::new();
     hash_files_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -347,5 +347,5 @@ fn test_mock4_files_recursive() {
 #[test]
 fn shared_fs_is_sync_send_static() {
     fn f<T: Sync + Send + 'static>() {  }
-    f::<Shared<VFat>>();
+    f::<Shared<VFat<::std::fs::File>>>();
 }
