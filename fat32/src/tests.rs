@@ -8,6 +8,8 @@ use vfat::{Shared, VFat, BiosParameterBlock};
 use mbr::{MasterBootRecord, CHS, PartitionEntry, get_partition};
 use traits::*;
 
+use chrono::{Datelike, Timelike};
+
 macro check_size($T:ty, $size:expr) {
     assert_eq!(::std::mem::size_of::<$T>(), $size,
         "'{}' does not have the expected size of {}", stringify!($T), $size);
@@ -150,15 +152,15 @@ fn hash_entry<T: Entry>(hash: &mut String, entry: &T) -> ::std::fmt::Result {
         if b { write!(to, "{}", c) } else { write!(to, "-") }
     }
 
-    fn write_timestamp<T: Timestamp>(to: &mut String, ts: T) -> ::std::fmt::Result {
+    fn write_timestamp(to: &mut String, ts: DateTime) -> ::std::fmt::Result {
         write!(to, "{:02}/{:02}/{} {:02}:{:02}:{:02} ",
                ts.month(), ts.day(), ts.year(), ts.hour(), ts.minute(), ts.second())
     }
 
     write_bool(hash, entry.is_dir(), 'd')?;
     write_bool(hash, entry.is_file(), 'f')?;
-    write_bool(hash, entry.metadata().read_only(), 'r')?;
-    write_bool(hash, entry.metadata().hidden(), 'h')?;
+    write_bool(hash, entry.metadata().is_read_only(), 'r')?;
+    write_bool(hash, entry.metadata().is_hidden(), 'h')?;
     write!(hash, "\t")?;
 
     write_timestamp(hash, entry.metadata().created())?;
@@ -219,12 +221,12 @@ fn hash_dir_recursive<P: AsRef<Path>, T: BlockDevice>(
 
     write!(hash, "{}\n", path.display())?;
     let entries = hash_dir(hash, dir)?;
-    if entries.iter().any(|e| e.is_dir()) {
+    if entries.iter().any(|e| Entry::is_dir(e)) {
         hash.push_str("\n\n");
     }
 
     for entry in entries {
-        if entry.is_dir() && entry.name() != "." && entry.name() != ".." {
+        if Entry::is_dir(&entry) && entry.name() != "." && entry.name() != ".." {
             let path = path.join(entry.name());
             hash_dir_recursive(hash, vfat.clone(), path)?;
         }
@@ -306,7 +308,7 @@ fn hash_files_recursive<P: AsRef<Path>, T: BlockDevice>(
                 hash_file(hash, file).expect("successful hash");
                 hash.push('\n');
             }
-        } else if entry.is_dir() && entry.name() != "." && entry.name() != ".." {
+        } else if Entry::is_dir(&entry) && entry.name() != "." && entry.name() != ".." {
             hash_files_recursive(hash, vfat.clone(), path)?;
         }
     }

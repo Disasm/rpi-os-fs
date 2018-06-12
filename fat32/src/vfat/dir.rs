@@ -6,29 +6,49 @@ use std::io;
 use traits;
 use util::VecExt;
 use vfat::{VFat, Shared, File, Entry};
-use vfat::{Metadata, Attributes, Timestamp, Time, Date};
 
 #[derive(Debug)]
 pub struct Dir {
-    // FIXME: Fill me in.
+    file: File,
 }
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 pub struct VFatRegularDirEntry {
-    // FIXME: Fill me in.
+    file_name: [u8; 8],
+    file_ext: [u8; 3],
+    attributes: u8,
+    _reserved: u8,
+    created_time_hundredths: u8,
+    created_time: u16,
+    created_date: u16,
+    accessed_date: u16,
+    cluster_high: u16,
+    modified_time: u16,
+    modified_date: u16,
+    cluster_low: u16,
+    size: u32,
 }
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 pub struct VFatLfnDirEntry {
-    // FIXME: Fill me in.
+    sequence_number: u8,
+    name: [u16; 5],
+    attributes: u8,
+    entry_type: u8,
+    checksum: u8,
+    name2: [u16; 6],
+    _always_zero: [u8; 2],
+    name3: [u16; 2],
 }
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 pub struct VFatUnknownDirEntry {
-    // FIXME: Fill me in.
+    _unknown: [u8; 11],
+    attributes: u8,
+    _unknown2: [u8; 20],
 }
 
 pub union VFatDirEntry {
@@ -53,4 +73,24 @@ impl Dir {
     }
 }
 
+pub struct DirIterator {
+    //
+}
+
+impl Iterator for DirIterator {
+    type Item = Entry;
+
+    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+        unimplemented!()
+    }
+}
+
 // FIXME: Implement `trait::Dir` for `Dir`.
+impl traits::Dir for Dir {
+    type Entry = Entry;
+    type Iter = DirIterator;
+
+    fn entries(&self) -> io::Result<DirIterator> {
+        unimplemented!()
+    }
+}

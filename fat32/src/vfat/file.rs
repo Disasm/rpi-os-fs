@@ -2,14 +2,38 @@ use std::cmp::{min, max};
 use std::io::{self, SeekFrom};
 
 use traits;
-use vfat::{VFat, Shared, Metadata};
+use vfat::{VFat, Shared};
 
 #[derive(Debug)]
 pub struct File {
     // FIXME: Fill me in.
 }
 
-// FIXME: Implement `traits::File` (and its supertraits) for `File`.
+impl io::Read for File {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        unimplemented!()
+    }
+}
+
+impl io::Write for File {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        unimplemented!()
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        unimplemented!()
+    }
+}
+
+impl traits::File for File {
+    fn sync(&mut self) -> io::Result<()> {
+        unimplemented!()
+    }
+
+    fn size(&self) -> u64 {
+        unimplemented!()
+    }
+}
 
 impl io::Seek for File {
     /// Seek to offset `pos` in the file.

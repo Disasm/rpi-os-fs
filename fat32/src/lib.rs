@@ -19,3 +19,5 @@ pub mod traits;
 
 pub use mbr::*;
 
+pub extern crate chrono;
+

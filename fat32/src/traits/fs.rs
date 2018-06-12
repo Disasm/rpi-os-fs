@@ -39,14 +39,6 @@ pub trait Entry: Sized {
     /// The metadata associated with the entry.
     fn metadata(&self) -> &Self::Metadata;
 
-    /// If `self` is a file, returns `Some` of a reference to the file.
-    /// Otherwise returns `None`.
-    fn as_file(&self) -> Option<&Self::File>;
-
-    /// If `self` is a directory, returns `Some` of a reference to the
-    /// directory. Otherwise returns `None`.
-    fn as_dir(&self) -> Option<&Self::Dir>;
-
     /// If `self` is a file, returns `Some` of the file. Otherwise returns
     /// `None`.
     fn into_file(self) -> Option<Self::File>;
@@ -57,12 +49,12 @@ pub trait Entry: Sized {
 
     /// Returns `true` if this entry is a file or `false` otherwise.
     fn is_file(&self) -> bool {
-        self.as_file().is_some()
+        !self.metadata().is_dir()
     }
 
     /// Returns `true` if this entry is a directory or `false` otherwise.
     fn is_dir(&self) -> bool {
-        self.as_dir().is_some()
+        self.metadata().is_dir()
     }
 }
 

@@ -1,5 +1,5 @@
 use std::io;
-use traits::{File, Dir, Entry, Metadata, Timestamp};
+use traits::{File, Dir, Entry, Metadata, DateTime};
 
 /// A type that implements all of the file system traits.
 #[derive(Copy, Clone)]
@@ -45,26 +45,15 @@ impl Entry for Dummy {
 
     fn name(&self) -> &str { panic!("Dummy") }
     fn metadata(&self) -> &Self::Metadata { panic!("Dummy") }
-    fn as_file(&self) -> Option<&Self::File> { panic!("Dummy") }
-    fn as_dir(&self) -> Option<&Self::Dir> { panic!("Dummy") }
     fn into_file(self) -> Option<Self::File> { panic!("Dummy") }
     fn into_dir(self) -> Option<Self::Dir> { panic!("Dummy") }
 }
 
-impl Timestamp for Dummy {
-    fn year(&self) -> usize { panic!("Dummy") }
-    fn month(&self) -> u8 { panic!("Dummy") }
-    fn day(&self) -> u8 { panic!("Dummy") }
-    fn hour(&self) -> u8 { panic!("Dummy") }
-    fn minute(&self) -> u8 { panic!("Dummy") }
-    fn second(&self) -> u8 { panic!("Dummy") }
-}
-
 impl Metadata for Dummy {
-    type Timestamp = Dummy;
-    fn read_only(&self) -> bool { panic!("Dummy") }
-    fn hidden(&self) -> bool { panic!("Dummy") }
-    fn created(&self) -> Self::Timestamp { panic!("Dummy") }
-    fn accessed(&self) -> Self::Timestamp { panic!("Dummy") }
-    fn modified(&self) -> Self::Timestamp { panic!("Dummy") }
+    fn is_dir(&self) -> bool { panic!("Dummy") }
+    fn is_read_only(&self) -> bool { panic!("Dummy") }
+    fn is_hidden(&self) -> bool { panic!("Dummy") }
+    fn created(&self) -> DateTime { panic!("Dummy") }
+    fn accessed(&self) -> DateTime { panic!("Dummy") }
+    fn modified(&self) -> DateTime { panic!("Dummy") }
 }

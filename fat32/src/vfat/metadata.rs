@@ -1,37 +1,57 @@
 use std::fmt;
 
-use traits;
-
-/// A date as represented in FAT32 on-disk structures.
-#[repr(C, packed)]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Date(u16);
-
-/// Time as represented in FAT32 on-disk structures.
-#[repr(C, packed)]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Time(u16);
+use traits::{self, Date, DateTime};
 
 /// File attributes as represented in FAT32 on-disk structures.
-#[repr(C, packed)]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub struct Attributes(u8);
 
-/// A structure containing a date and time.
-#[derive(Default, Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Timestamp {
-    pub date: Date,
-    pub time: Time
+impl Attributes {
+    pub fn is_read_only(&self) -> bool {
+        (self.0 & 0x01) != 0
+    }
+
+    pub fn is_hidden(&self) -> bool {
+        (self.0 & 0x02) != 0
+    }
+
+    pub fn is_dir(&self) -> bool {
+        (self.0 & 0x10) != 0
+    }
 }
 
 /// Metadata for a directory entry.
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct Metadata {
-    // FIXME: Fill me in.
+    attributes: Attributes,
+    created: DateTime,
+    accessed: Date,
+    modified: DateTime,
+    first_cluster: u32,
 }
 
-// FIXME: Implement `traits::Timestamp` for `Timestamp`.
+impl traits::Metadata for Metadata {
+    fn is_dir(&self) -> bool {
+        self.attributes.is_dir()
+    }
 
-// FIXME: Implement `traits::Metadata` for `Metadata`.
+    fn is_read_only(&self) -> bool {
+        self.attributes.is_read_only()
+    }
 
-// FIXME: Implement `fmt::Display` (to your liking) for `Metadata`.
+    fn is_hidden(&self) -> bool {
+        self.attributes.is_hidden()
+    }
+
+    fn created(&self) -> DateTime {
+        self.created
+    }
+
+    fn accessed(&self) -> DateTime {
+        self.accessed.and_hms(0, 0, 0)
+    }
+
+    fn modified(&self) -> DateTime {
+        self.modified
+    }
+}
