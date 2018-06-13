@@ -8,6 +8,11 @@ use util::VecExt;
 use vfat::{VFat, Shared, File, Entry};
 use std::mem;
 use std::io::Read;
+use fallible_iterator::FallibleIterator;
+use fallible_iterator::Peekable;
+use traits::{Date, Time, DateTime};
+use vfat::metadata::Metadata;
+use vfat::metadata::Attributes;
 
 //#[derive(Debug)]
 pub struct Dir {
@@ -50,7 +55,8 @@ pub struct VFatLfnDirEntry {
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
 pub struct VFatUnknownDirEntry {
-    _unknown: [u8; 11],
+    first_byte: u8,
+    _unknown: [u8; 10],
     attributes: u8,
     _unknown2: [u8; 20],
 }
@@ -59,6 +65,20 @@ pub union VFatDirEntry {
     unknown: VFatUnknownDirEntry,
     regular: VFatRegularDirEntry,
     long_filename: VFatLfnDirEntry,
+}
+
+impl VFatDirEntry {
+    fn is_regular(&self) -> bool {
+        self.is_valid() && !self.is_lfn()
+    }
+
+    fn is_lfn(&self) -> bool {
+        self.is_valid() && unsafe { self.unknown }.attributes == 0x0f
+    }
+
+    fn is_valid(&self) -> bool {
+        unsafe { self.unknown }.first_byte != 0xe5
+    }
 }
 
 impl Dir {
@@ -81,34 +101,133 @@ struct RawDirIterator {
     file: File,
 }
 
-impl Iterator for RawDirIterator {
-    type Item = io::Result<VFatDirEntry>;
+impl FallibleIterator for RawDirIterator {
+    type Item = VFatDirEntry;
+    type Error = io::Error;
 
-    fn next(&mut self) -> Option<io::Result<VFatDirEntry>> {
+    fn next(&mut self) -> io::Result<Option<VFatDirEntry>> {
         if self.file.at_end() {
-            return None;
+            return Ok(None);
         }
         let mut buf = [0; 32];
-        match self.file.read_exact(&mut buf) {
-            Ok(_) => Some(Ok(unsafe { mem::transmute(buf) })),
-            Err(e) => Some(Err(e)),
+        self.file.read_exact(&mut buf)?;
+        let entry: VFatDirEntry = unsafe { mem::transmute(buf) };
+        if unsafe { entry.unknown }.first_byte != 0x00 {
+            Ok(Some(entry))
+        } else {
+            Ok(None)
         }
     }
 }
 
-pub struct DirIterator {
-    inner: RawDirIterator,
+pub struct DirIterator(RawDirIterator);
+
+fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
+    let data = if let Some(index) = bytes.iter().position(|x| *x == 0x00 || *x == 0x20) {
+        &bytes[..index]
+    } else {
+        bytes
+    };
+
+    if !data.iter().all(|c| c.is_ascii()) {
+        return Err(io::Error::from(io::ErrorKind::InvalidData));
+    }
+
+    ::std::str::from_utf8(data).map_err(|e| io::Error::from(io::ErrorKind::InvalidData))
 }
 
-impl Iterator for DirIterator {
-    type Item = io::Result<Entry>;
+fn decode_date(raw_date: u16) -> io::Result<Date> {
+    let year = (raw_date >> 9) + 1980;
+    let month = (raw_date >> 5) & 0b1111;
+    let second = raw_date & 0b11111;
+    Date::from_ymd_opt(year as i32, month as u32, second as u32).ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+}
 
-    fn next(&mut self) -> Option<io::Result<Entry>> {
-        unimplemented!()
+fn decode_time(raw_time: u16) -> io::Result<Time> {
+    let hour = raw_time >> 11;
+    let minute = (raw_time >> 5) & 0b11_11_11;
+    let second = 2 * (raw_time & 0b11111);
+    Time::from_hms_opt(hour as u32, minute as u32, second as u32).ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+}
+
+impl FallibleIterator for DirIterator {
+    type Item = Entry;
+    type Error = io::Error;
+
+    fn next(&mut self) -> io::Result<Option<Entry>> {
+        if let Some(entry) = self.0.find(|entry| entry.is_valid())? {
+            let (long_name, regular_entry) = if entry.is_lfn() {
+                let lfn_entry = unsafe { entry.long_filename };
+                if lfn_entry.sequence_number & 0x40 == 0 {
+                    return Err(io::Error::from(io::ErrorKind::InvalidData));
+                }
+                let lfn_entries_count = lfn_entry.sequence_number & 0x1F;
+
+                let mut entries = vec![lfn_entry];
+                for i in 1..lfn_entries_count {
+                    if let Some(entry) = self.0.next()? {
+                        if entry.is_lfn() {
+                            let lfn_entry_index = lfn_entry.sequence_number & 0x1F;
+                            if lfn_entry_index != (lfn_entries_count - i) {
+                                return Err(io::Error::from(io::ErrorKind::InvalidData));
+                            }
+                            entries.push(unsafe { entry.long_filename });
+                        } else {
+                            return Err(io::Error::from(io::ErrorKind::InvalidData));
+                        }
+                    } else {
+                        return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+                    }
+                }
+
+                let mut filename_buf = Vec::new();
+                for entry in entries.iter().rev() {
+                    filename_buf.extend_from_slice(&entry.name);
+                    filename_buf.extend_from_slice(&entry.name2);
+                    filename_buf.extend_from_slice(&entry.name3);
+                }
+                if let Some(index) = filename_buf.iter().position(|x| *x == 0x0000) {
+                    filename_buf.resize(index, 0);
+                }
+                let long_name = String::from_utf16(&filename_buf).ok();
+
+                let next_entry = self.0.next()?.ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
+                if !next_entry.is_regular() {
+                    return Err(io::Error::from(io::ErrorKind::InvalidData));
+                }
+                (long_name, next_entry)
+            } else {
+                assert!(entry.is_regular());
+                (None, entry)
+            };
+
+            let regular_entry = unsafe { regular_entry.regular };
+            let file_name = if let Some(f) = long_name {
+                f
+            } else {
+                format!("{}.{}", bytes_to_short_filename(&regular_entry.file_name)?,
+                                 bytes_to_short_filename(&regular_entry.file_ext)?)
+            };
+
+            let metadata = Metadata {
+                attributes: Attributes(regular_entry.attributes),
+                created: DateTime::new(decode_date(regular_entry.created_date)?, decode_time(regular_entry.created_time)?),
+                accessed: decode_date(regular_entry.accessed_date)?,
+                modified: DateTime::new(decode_date(regular_entry.modified_date)?, decode_time(regular_entry.modified_time)?),
+                first_cluster: ((regular_entry.cluster_high as u32) << 16) | (regular_entry.cluster_low as u32),
+            };
+            let entry = Entry {
+                name: file_name,
+                metadata,
+            };
+            Ok(Some(entry))
+        } else {
+            Ok(None)
+        }
     }
 }
 
-// FIXME: Implement `trait::Dir` for `Dir`.
+
 impl traits::Dir for Dir {
     type Entry = Entry;
     type Iter = DirIterator;
@@ -117,8 +236,6 @@ impl traits::Dir for Dir {
         let raw_iterator = RawDirIterator {
             file: File::open(self.vfat.clone(), self.start_cluster, self.size)
         };
-        Ok(DirIterator {
-            inner: raw_iterator
-        })
+        Ok(DirIterator(raw_iterator))
     }
 }

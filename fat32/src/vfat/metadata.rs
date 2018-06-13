@@ -4,7 +4,7 @@ use traits::{self, Date, DateTime};
 
 /// File attributes as represented in FAT32 on-disk structures.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
-pub struct Attributes(u8);
+pub(crate) struct Attributes(pub(crate) u8);
 
 impl Attributes {
     pub fn is_read_only(&self) -> bool {
@@ -23,11 +23,11 @@ impl Attributes {
 /// Metadata for a directory entry.
 #[derive(Debug, Clone)]
 pub struct Metadata {
-    attributes: Attributes,
-    created: DateTime,
-    accessed: Date,
-    modified: DateTime,
-    first_cluster: u32,
+    pub(crate) attributes: Attributes,
+    pub(crate) created: DateTime,
+    pub(crate) accessed: Date,
+    pub(crate) modified: DateTime,
+    pub(crate) first_cluster: u32,
 }
 
 impl traits::Metadata for Metadata {

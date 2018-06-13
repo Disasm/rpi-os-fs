@@ -4,8 +4,8 @@ use vfat::metadata::Metadata;
 
 #[derive(Debug)]
 pub struct Entry {
-    name: String,
-    metadata: Metadata,
+    pub(crate) name: String,
+    pub(crate) metadata: Metadata,
 }
 
 // TODO: Implement any useful helper methods on `Entry`.

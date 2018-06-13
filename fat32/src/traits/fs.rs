@@ -2,6 +2,7 @@ use std::io;
 use std::path::Path;
 
 use traits::Metadata;
+use fallible_iterator::FallibleIterator;
 
 /// Trait implemented by files in the file system.
 pub trait File: io::Read + io::Write + io::Seek + Sized {
@@ -18,7 +19,7 @@ pub trait Dir: Sized {
     type Entry: Entry;
 
     /// An type that is an iterator over the entries in this directory.
-    type Iter: Iterator<Item = io::Result<Self::Entry>>;
+    type Iter: FallibleIterator<Item = Self::Entry, Error=io::Error>;
 
     /// Returns an interator over the entries in this directory.
     fn entries(&self) -> io::Result<Self::Iter>;

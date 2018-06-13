@@ -5,6 +5,7 @@ authors = ["Sergio Benitez <sb@sergio.bz>"]
 
 [dependencies]
 chrono = "0.4.2"
+fallible-iterator = "0.1.4"
 
 [dev-dependencies]
 rand = "0.4"

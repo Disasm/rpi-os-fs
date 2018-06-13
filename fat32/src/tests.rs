@@ -7,7 +7,7 @@ use std::path::Path;
 use vfat::{Shared, VFat, BiosParameterBlock};
 use mbr::{MasterBootRecord, CHS, PartitionEntry, get_partition};
 use traits::*;
-
+use fallible_iterator::FallibleIterator;
 use chrono::{Datelike, Timelike};
 use std::io;
 
@@ -178,7 +178,7 @@ fn hash_dir<T: Dir>(
 ) -> Result<Vec<T::Entry>, ::std::fmt::Error> {
     let mut entries = dir.entries()
         .expect("entries interator")
-        .collect::<io::Result<Vec<_>>>().unwrap();
+        .collect::<Vec<_>>().unwrap();
 
     entries.sort_by(|a, b| a.name().cmp(b.name()));
     for (i, entry) in entries.iter().enumerate() {
@@ -296,7 +296,7 @@ fn hash_files_recursive<P: AsRef<Path>>(
     let mut entries = vfat.open_dir(path)
         .expect("directory").entries()
         .expect("entries interator")
-        .collect::<io::Result<Vec<_>>>().unwrap();
+        .collect::<Vec<_>>().unwrap();
 
     entries.sort_by(|a, b| a.name().cmp(b.name()));
     for entry in entries {

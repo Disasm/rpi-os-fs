@@ -1,6 +1,6 @@
-pub type Date = ::chrono::Date<::chrono::Local>;
+pub type Date = ::chrono::NaiveDate;
 pub type Time = ::chrono::NaiveTime;
-pub type DateTime = ::chrono::DateTime<::chrono::Local>;
+pub type DateTime = ::chrono::NaiveDateTime;
 
 /// Trait for directory entry metadata.
 pub trait Metadata: Sized {

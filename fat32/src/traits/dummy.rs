@@ -1,5 +1,6 @@
 use std::io;
 use traits::{File, Dir, Entry, Metadata, DateTime};
+use fallible_iterator::FallibleIterator;
 
 /// A type that implements all of the file system traits.
 #[derive(Copy, Clone)]
@@ -33,9 +34,10 @@ impl Dir for Dummy {
     fn entries(&self) -> io::Result<Self::Iter> { panic!("Dummy") }
 }
 
-impl Iterator for Dummy {
-    type Item = io::Result<Dummy>;
-    fn next(&mut self) -> Option<Self::Item> { panic!("Dummy") }
+impl FallibleIterator for Dummy {
+    type Item = Dummy;
+    type Error = io::Error;
+    fn next(&mut self) -> io::Result<Option<Self::Item>> { panic!("Dummy") }
 }
 
 impl Entry for Dummy {
