@@ -6,10 +6,14 @@ use std::io;
 use traits;
 use util::VecExt;
 use vfat::{VFat, Shared, File, Entry};
+use std::mem;
+use std::io::Read;
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub struct Dir {
-    file: File,
+    vfat: Shared<VFat>,
+    start_cluster: u32,
+    size: u32,
 }
 
 #[repr(C, packed)]
@@ -73,14 +77,33 @@ impl Dir {
     }
 }
 
+struct RawDirIterator {
+    file: File,
+}
+
+impl Iterator for RawDirIterator {
+    type Item = io::Result<VFatDirEntry>;
+
+    fn next(&mut self) -> Option<io::Result<VFatDirEntry>> {
+        if self.file.at_end() {
+            return None;
+        }
+        let mut buf = [0; 32];
+        match self.file.read_exact(&mut buf) {
+            Ok(_) => Some(Ok(unsafe { mem::transmute(buf) })),
+            Err(e) => Some(Err(e)),
+        }
+    }
+}
+
 pub struct DirIterator {
-    //
+    inner: RawDirIterator,
 }
 
 impl Iterator for DirIterator {
-    type Item = Entry;
+    type Item = io::Result<Entry>;
 
-    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
+    fn next(&mut self) -> Option<io::Result<Entry>> {
         unimplemented!()
     }
 }
@@ -91,6 +114,11 @@ impl traits::Dir for Dir {
     type Iter = DirIterator;
 
     fn entries(&self) -> io::Result<DirIterator> {
-        unimplemented!()
+        let raw_iterator = RawDirIterator {
+            file: File::open(self.vfat.clone(), self.start_cluster, self.size)
+        };
+        Ok(DirIterator {
+            inner: raw_iterator
+        })
     }
 }

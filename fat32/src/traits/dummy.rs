@@ -34,7 +34,7 @@ impl Dir for Dummy {
 }
 
 impl Iterator for Dummy {
-    type Item = Dummy;
+    type Item = io::Result<Dummy>;
     fn next(&mut self) -> Option<Self::Item> { panic!("Dummy") }
 }
 

@@ -10,8 +10,8 @@ use traits::{FileSystem, BlockDevice};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::mem;
 
-pub struct VFat<T: BlockDevice> {
-    device: LogicalBlockDevice<T>,
+pub struct VFat {
+    device: Box<BlockDevice>,
     bytes_per_sector: u16,
     sectors_per_cluster: u8,
     sectors_per_fat: u32,
@@ -20,13 +20,13 @@ pub struct VFat<T: BlockDevice> {
     root_dir_cluster: u32,
 }
 
-impl<T: BlockDevice> VFat<T> {
-    pub fn from(mut device: T) -> Result<Shared<VFat<T>>, Error>
+impl VFat {
+    pub fn from<T: BlockDevice + 'static>(mut device: T) -> Result<Shared<VFat>, Error>
     {
         let ebpb = BiosParameterBlock::read_from(&mut device)?;
         let logical_block_device = LogicalBlockDevice::new(device, ebpb.bytes_per_logical_sector as u64);
         let vfat = VFat {
-            device: logical_block_device,
+            device: Box::new(logical_block_device),
             bytes_per_sector: ebpb.bytes_per_logical_sector,
             sectors_per_cluster: ebpb.logical_sectors_per_cluster,
             sectors_per_fat: ebpb.logical_sectors_per_fat,
@@ -38,20 +38,23 @@ impl<T: BlockDevice> VFat<T> {
         Ok(Shared::new(vfat))
     }
 
+    pub(crate) fn cluster_size_bytes(&self) -> u32 {
+        self.sectors_per_cluster as u32 * self.bytes_per_sector as u32
+    }
+
     //
     //  * A method to read from an offset of a cluster into a buffer.
     //
-    fn read_cluster(
+    pub(crate) fn read_cluster(
         &mut self,
         cluster: u32,
-        offset: u64,
+        offset: u32,
         buf: &mut [u8]
     ) -> io::Result<()> {
         if cluster < 2 {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
-        let cluster_size_bytes = self.sectors_per_cluster as u64 * self.bytes_per_sector as u64;
-        if (offset + buf.len() as u64) > cluster_size_bytes {
+        if (offset + buf.len() as u32) > self.cluster_size_bytes() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
 
@@ -61,12 +64,7 @@ impl<T: BlockDevice> VFat<T> {
     }
 
 
-    fn chain_iterator(&mut self, start_cluster: u32) -> ClusterChainIterator<T> {
-        ClusterChainIterator {
-            cluster: FatEntry(start_cluster),
-            vfat: self
-        }
-    }
+
     //
     //  * A method to read all of the clusters chained from a starting cluster
     //    into a vector.
@@ -89,7 +87,7 @@ impl<T: BlockDevice> VFat<T> {
     //  * A method to return a reference to a `FatEntry` for a cluster where the
     //    reference points directly into a cached sector.
     //
-    fn fat_entry(&mut self, cluster: u32) -> io::Result<FatEntry> {
+    pub(crate) fn fat_entry(&mut self, cluster: u32) -> io::Result<FatEntry> {
         let mut offset = (cluster as u64) * size_of::<u32>() as u64;
         offset += self.fat_start_sector * self.bytes_per_sector as u64;
         let mut buf = [0; 4];
@@ -99,7 +97,16 @@ impl<T: BlockDevice> VFat<T> {
     }
 }
 
-impl<'a, T: BlockDevice> FileSystem for &'a Shared<VFat<T>> {
+impl Shared<VFat> {
+    pub(crate) fn chain_iterator(&mut self, start_cluster: u32) -> ClusterChainIterator {
+        ClusterChainIterator {
+            cluster: FatEntry(start_cluster),
+            vfat: self.clone()
+        }
+    }
+}
+
+impl<'a> FileSystem for &'a Shared<VFat> {
     type File = ::traits::Dummy;
     type Dir = ::traits::Dummy;
     type Entry = ::traits::Dummy;
@@ -129,18 +136,19 @@ impl<'a, T: BlockDevice> FileSystem for &'a Shared<VFat<T>> {
     }
 }
 
-struct ClusterChainIterator<'a, T: 'a + BlockDevice> {
-    vfat: &'a mut VFat<T>,
+pub struct ClusterChainIterator {
+    vfat: Shared<VFat>,
     cluster: FatEntry,
 }
 
-impl<'a, T: BlockDevice> Iterator for ClusterChainIterator<'a, T> {
+
+impl Iterator for ClusterChainIterator {
     type Item = io::Result<u32>;
 
     fn next(&mut self) -> Option<<Self as Iterator>::Item> {
         match self.cluster.status() {
             Status::Data(cluster) => {
-                self.cluster = match self.vfat.fat_entry(cluster) {
+                self.cluster = match self.vfat.borrow_mut().fat_entry(cluster) {
                     Ok(entry) => entry,
                     Err(e) => return Some(Err(e))
                 };

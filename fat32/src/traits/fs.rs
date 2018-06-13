@@ -18,7 +18,7 @@ pub trait Dir: Sized {
     type Entry: Entry;
 
     /// An type that is an iterator over the entries in this directory.
-    type Iter: Iterator<Item = Self::Entry>;
+    type Iter: Iterator<Item = io::Result<Self::Entry>>;
 
     /// Returns an interator over the entries in this directory.
     fn entries(&self) -> io::Result<Self::Iter>;

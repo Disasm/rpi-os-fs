@@ -9,6 +9,7 @@ use mbr::{MasterBootRecord, CHS, PartitionEntry, get_partition};
 use traits::*;
 
 use chrono::{Datelike, Timelike};
+use std::io;
 
 macro check_size($T:ty, $size:expr) {
     assert_eq!(::std::mem::size_of::<$T>(), $size,
@@ -175,9 +176,9 @@ fn hash_entry<T: Entry>(hash: &mut String, entry: &T) -> ::std::fmt::Result {
 fn hash_dir<T: Dir>(
     hash: &mut String, dir: T
 ) -> Result<Vec<T::Entry>, ::std::fmt::Error> {
-    let mut entries: Vec<_> = dir.entries()
+    let mut entries = dir.entries()
         .expect("entries interator")
-        .collect();
+        .collect::<io::Result<Vec<_>>>().unwrap();
 
     entries.sort_by(|a, b| a.name().cmp(b.name()));
     for (i, entry) in entries.iter().enumerate() {
@@ -188,7 +189,7 @@ fn hash_dir<T: Dir>(
     Ok(entries)
 }
 
-fn hash_dir_from<P: AsRef<Path>, T: BlockDevice>(vfat: Shared<VFat<T>>, path: P) -> String {
+fn hash_dir_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
     let mut hash = String::new();
     hash_dir(&mut hash, vfat.open_dir(path).expect("directory exists")).unwrap();
     hash
@@ -209,9 +210,9 @@ fn test_root_entries() {
     assert_hash_eq!("mock 4 root directory", hash, hash_for!("root-entries-4"));
 }
 
-fn hash_dir_recursive<P: AsRef<Path>, T: BlockDevice>(
+fn hash_dir_recursive<P: AsRef<Path>>(
     hash: &mut String,
-    vfat: Shared<VFat<T>>,
+    vfat: Shared<VFat>,
     path: P
 ) -> ::std::fmt::Result {
     use std::fmt::Write;
@@ -235,7 +236,7 @@ fn hash_dir_recursive<P: AsRef<Path>, T: BlockDevice>(
     Ok(())
 }
 
-fn hash_dir_recursive_from<P: AsRef<Path>, T: BlockDevice>(vfat: Shared<VFat<T>>, path: P) -> String {
+fn hash_dir_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
     let mut hash = String::new();
     hash_dir_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -285,17 +286,17 @@ fn hash_file<T: File>(hash: &mut String, mut file: T) -> ::std::fmt::Result {
     write!(hash, "{}", hasher.finish())
 }
 
-fn hash_files_recursive<P: AsRef<Path>, T: BlockDevice>(
+fn hash_files_recursive<P: AsRef<Path>>(
     hash: &mut String,
-    vfat: Shared<VFat<T>>,
+    vfat: Shared<VFat>,
     path: P
 ) -> ::std::fmt::Result {
     let path = path.as_ref();
+
     let mut entries = vfat.open_dir(path)
-        .expect("directory")
-        .entries()
+        .expect("directory").entries()
         .expect("entries interator")
-        .collect::<Vec<_>>();
+        .collect::<io::Result<Vec<_>>>().unwrap();
 
     entries.sort_by(|a, b| a.name().cmp(b.name()));
     for entry in entries {
@@ -316,7 +317,7 @@ fn hash_files_recursive<P: AsRef<Path>, T: BlockDevice>(
     Ok(())
 }
 
-fn hash_files_recursive_from<P: AsRef<Path>, T: BlockDevice>(vfat: Shared<VFat<T>>, path: P) -> String {
+fn hash_files_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
     let mut hash = String::new();
     hash_files_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -349,5 +350,5 @@ fn test_mock4_files_recursive() {
 #[test]
 fn shared_fs_is_sync_send_static() {
     fn f<T: Sync + Send + 'static>() {  }
-    f::<Shared<VFat<::std::fs::File>>>();
+    f::<Shared<VFat>>();
 }

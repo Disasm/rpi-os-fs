@@ -3,7 +3,7 @@ use vfat::*;
 
 use self::Status::*;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Status {
     /// The FAT entry corresponds to an unused (free) cluster.
     Free,
@@ -20,6 +20,7 @@ pub enum Status {
 }
 
 #[repr(C, packed)]
+#[derive(Clone)]
 pub struct FatEntry(pub u32);
 
 impl FatEntry {
