@@ -25,20 +25,9 @@ pub trait Dir: Sized {
     fn entries(&self) -> io::Result<Self::Iter>;
 }
 
-/// Trait implemented by directory entries in a file system.
-///
-/// An entry is either a `File` or a `Directory` and is associated with both
-/// `Metadata` and a name.
-pub trait Entry: Sized {
+pub trait FileSystemObject: Sized {
     type File: File;
     type Dir: Dir;
-    type Metadata: Metadata;
-
-    /// The name of the file or directory corresponding to this entry.
-    fn name(&self) -> &str;
-
-    /// The metadata associated with the entry.
-    fn metadata(&self) -> &Self::Metadata;
 
     /// If `self` is a file, returns `Some` of the file. Otherwise returns
     /// `None`.
@@ -47,6 +36,26 @@ pub trait Entry: Sized {
     /// If `self` is a directory, returns `Some` of the directory. Otherwise
     /// returns `None`.
     fn into_dir(self) -> Option<Self::Dir>;
+
+    /// Returns `true` if this entry is a file or `false` otherwise.
+    fn is_file(&self) -> bool;
+
+    /// Returns `true` if this entry is a directory or `false` otherwise.
+    fn is_dir(&self) -> bool;
+}
+
+/// Trait implemented by directory entries in a file system.
+///
+/// An entry is either a `File` or a `Directory` and is associated with both
+/// `Metadata` and a name.
+pub trait Entry: Sized {
+    type Metadata: Metadata;
+
+    /// The name of the file or directory corresponding to this entry.
+    fn name(&self) -> &str;
+
+    /// The metadata associated with the entry.
+    fn metadata(&self) -> &Self::Metadata;
 
     /// Returns `true` if this entry is a file or `false` otherwise.
     fn is_file(&self) -> bool {
@@ -65,10 +74,9 @@ pub trait FileSystem: Sized {
     type File: File;
 
     /// The type of directories in this file system.
-    type Dir: Dir<Entry = Self::Entry>;
+    type Dir: Dir;
 
-    /// The type of directory entries in this file system.
-    type Entry: Entry<File = Self::File, Dir = Self::Dir>;
+    type FileSystemObject: FileSystemObject<File = Self::File, Dir = Self::Dir>;
 
     /// Opens the entry at `path`. `path` must be absolute.
     ///
@@ -82,7 +90,7 @@ pub trait FileSystem: Sized {
     /// If there is no entry at `path`, an error kind of `NotFound` is returned.
     ///
     /// All other error values are implementation defined.
-    fn open<P: AsRef<Path>>(self, path: P) -> io::Result<Self::Entry>;
+    fn open<P: AsRef<Path>>(self, path: P) -> io::Result<Self::FileSystemObject>;
 
     /// Opens the file at `path`. `path` must be absolute.
     ///

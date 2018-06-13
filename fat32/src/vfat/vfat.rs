@@ -9,15 +9,17 @@ use vfat::{BiosParameterBlock};
 use traits::{FileSystem, BlockDevice};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::mem;
+use vfat::file_system_object::FileSystemObject;
+use std::path::Component;
 
 pub struct VFat {
-    device: Box<BlockDevice>,
-    bytes_per_sector: u16,
-    sectors_per_cluster: u8,
-    sectors_per_fat: u32,
-    fat_start_sector: u64,
-    data_start_sector: u64,
-    root_dir_cluster: u32,
+    pub(crate) device: Box<BlockDevice>,
+    pub(crate) bytes_per_sector: u16,
+    pub(crate) sectors_per_cluster: u8,
+    pub(crate) sectors_per_fat: u32,
+    pub(crate) fat_start_sector: u64,
+    pub(crate) data_start_sector: u64,
+    pub(crate) root_dir_cluster: u32,
 }
 
 impl VFat {
@@ -107,12 +109,16 @@ impl Shared<VFat> {
 }
 
 impl<'a> FileSystem for &'a Shared<VFat> {
-    type File = ::traits::Dummy;
-    type Dir = ::traits::Dummy;
-    type Entry = ::traits::Dummy;
+    type File = File;
+    type Dir = Dir;
+    type FileSystemObject = FileSystemObject;
 
-    fn open<P: AsRef<Path>>(self, path: P) -> io::Result<Self::Entry> {
-        unimplemented!("FileSystem::open()")
+    fn open<P: AsRef<Path>>(self, path: P) -> io::Result<Self::FileSystemObject> {
+        if path.as_ref().components().collect::<Vec<_>>() == [Component::RootDir] {
+            Ok(FileSystemObject::root(self.clone()))
+        } else {
+            unimplemented!("FileSystem::open()")
+        }
     }
 
     fn create_file<P: AsRef<Path>>(self, _path: P) -> io::Result<Self::File> {

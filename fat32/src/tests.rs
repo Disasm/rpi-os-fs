@@ -176,9 +176,9 @@ fn hash_entry<T: Entry>(hash: &mut String, entry: &T) -> ::std::fmt::Result {
 fn hash_dir<T: Dir>(
     hash: &mut String, dir: T
 ) -> Result<Vec<T::Entry>, ::std::fmt::Error> {
-    let mut entries = dir.entries()
-        .expect("entries interator")
-        .collect::<Vec<_>>().unwrap();
+    let entries_iter = dir.entries()
+        .expect("entries interator");
+    let mut entries = entries_iter.collect::<Vec<_>>().unwrap();
 
     entries.sort_by(|a, b| a.name().cmp(b.name()));
     for (i, entry) in entries.iter().enumerate() {
@@ -303,7 +303,7 @@ fn hash_files_recursive<P: AsRef<Path>>(
         let path = path.join(entry.name());
         if entry.is_file() && !entry.name().starts_with(".BC.T") {
             use std::fmt::Write;
-            let file = entry.into_file().unwrap();
+            let file = ::vfat::file_system_object::FileSystemObject::from_entry(vfat.clone(), entry).into_file().unwrap();
             if file.size() < (1 << 20) {
                 write!(hash, "{}: ", path.display())?;
                 hash_file(hash, file).expect("successful hash");

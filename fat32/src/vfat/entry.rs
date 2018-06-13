@@ -11,8 +11,6 @@ pub struct Entry {
 // TODO: Implement any useful helper methods on `Entry`.
 
 impl traits::Entry for Entry {
-    type File = File;
-    type Dir = Dir;
     type Metadata = Metadata;
 
     fn name(&self) -> &str {
@@ -21,13 +19,5 @@ impl traits::Entry for Entry {
 
     fn metadata(&self) -> &Metadata {
         &self.metadata
-    }
-
-    fn into_file(self) -> Option<File> {
-        unimplemented!()
-    }
-
-    fn into_dir(self) -> Option<Dir> {
-        unimplemented!()
     }
 }

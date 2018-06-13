@@ -28,6 +28,7 @@ pub struct Metadata {
     pub(crate) accessed: Date,
     pub(crate) modified: DateTime,
     pub(crate) first_cluster: u32,
+    pub(crate) size: u32,
 }
 
 impl traits::Metadata for Metadata {

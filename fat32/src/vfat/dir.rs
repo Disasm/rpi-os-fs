@@ -82,6 +82,13 @@ impl VFatDirEntry {
 }
 
 impl Dir {
+    pub fn open(vfat: Shared<VFat>, start_cluster: u32, size: u32) -> Dir {
+        Dir {
+            vfat,
+            start_cluster,
+            size,
+        }
+    }
     /// Finds the entry named `name` in `self` and returns it. Comparison is
     /// case-insensitive.
     ///
@@ -130,24 +137,25 @@ fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
     };
 
     if !data.iter().all(|c| c.is_ascii()) {
-        return Err(io::Error::from(io::ErrorKind::InvalidData));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "filename contains non-ascii characters"));
     }
 
-    ::std::str::from_utf8(data).map_err(|e| io::Error::from(io::ErrorKind::InvalidData))
+    ::std::str::from_utf8(data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "can't parse filename as UTF-8"))
 }
 
 fn decode_date(raw_date: u16) -> io::Result<Date> {
     let year = (raw_date >> 9) + 1980;
     let month = (raw_date >> 5) & 0b1111;
     let second = raw_date & 0b11111;
-    Date::from_ymd_opt(year as i32, month as u32, second as u32).ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+    //println!("raw_date: {:x}, year: {}, month: {}, second: {}", raw_date, year, month, second);
+    Date::from_ymd_opt(year as i32, month as u32, second as u32).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid date"))
 }
 
 fn decode_time(raw_time: u16) -> io::Result<Time> {
     let hour = raw_time >> 11;
     let minute = (raw_time >> 5) & 0b11_11_11;
     let second = 2 * (raw_time & 0b11111);
-    Time::from_hms_opt(hour as u32, minute as u32, second as u32).ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+    Time::from_hms_opt(hour as u32, minute as u32, second as u32).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid time"))
 }
 
 impl FallibleIterator for DirIterator {
@@ -159,7 +167,7 @@ impl FallibleIterator for DirIterator {
             let (long_name, regular_entry) = if entry.is_lfn() {
                 let lfn_entry = unsafe { entry.long_filename };
                 if lfn_entry.sequence_number & 0x40 == 0 {
-                    return Err(io::Error::from(io::ErrorKind::InvalidData));
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid sequence number for the first LFN entry"));
                 }
                 let lfn_entries_count = lfn_entry.sequence_number & 0x1F;
 
@@ -169,11 +177,11 @@ impl FallibleIterator for DirIterator {
                         if entry.is_lfn() {
                             let lfn_entry_index = lfn_entry.sequence_number & 0x1F;
                             if lfn_entry_index != (lfn_entries_count - i) {
-                                return Err(io::Error::from(io::ErrorKind::InvalidData));
+                                return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid sequence number"));
                             }
                             entries.push(unsafe { entry.long_filename });
                         } else {
-                            return Err(io::Error::from(io::ErrorKind::InvalidData));
+                            return Err(io::Error::new(io::ErrorKind::InvalidData, "unexpected LFN entry"));
                         }
                     } else {
                         return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
@@ -191,9 +199,9 @@ impl FallibleIterator for DirIterator {
                 }
                 let long_name = String::from_utf16(&filename_buf).ok();
 
-                let next_entry = self.0.next()?.ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))?;
+                let next_entry = self.0.next()?.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "can't find regular entry after long entry"))?;
                 if !next_entry.is_regular() {
-                    return Err(io::Error::from(io::ErrorKind::InvalidData));
+                    return Err(io::Error::new(io::ErrorKind::InvalidData, "next entry is not regular"));
                 }
                 (long_name, next_entry)
             } else {
@@ -215,6 +223,7 @@ impl FallibleIterator for DirIterator {
                 accessed: decode_date(regular_entry.accessed_date)?,
                 modified: DateTime::new(decode_date(regular_entry.modified_date)?, decode_time(regular_entry.modified_time)?),
                 first_cluster: ((regular_entry.cluster_high as u32) << 16) | (regular_entry.cluster_low as u32),
+                size: regular_entry.size,
             };
             let entry = Entry {
                 name: file_name,
