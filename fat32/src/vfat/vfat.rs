@@ -87,6 +87,10 @@ impl VFat {
     //    reference points directly into a cached sector.
     //
     pub(crate) fn fat_entry(&mut self, cluster: u32) -> io::Result<FatEntry> {
+        let max_clusters = self.sectors_per_fat * self.bytes_per_sector as u32 / size_of::<u32>() as u32;
+        if cluster >= max_clusters {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
         let mut offset = (cluster as u64) * size_of::<u32>() as u64;
         offset += self.fat_start_sector * self.bytes_per_sector as u64;
         let mut buf = [0; 4];
