@@ -126,7 +126,14 @@ fn test_mbr() {
     let mut mbr = resource("mbr.img");
     let mut data = [0u8; 512];
     mbr.read_exact(&mut data).expect("read resource data");
-    MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).expect("valid MBR");
+    let mbr = MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).expect("valid MBR");
+    assert_eq!(mbr.entries[0].entry_type, 0x0b);
+    assert_eq!(mbr.entries[1].entry_type, 0x00);
+    assert_eq!(mbr.entries[2].entry_type, 0x00);
+    assert_eq!(mbr.entries[3].entry_type, 0x00);
+    let entry = &mbr.entries[0];
+    assert_eq!(entry.start_lba, 1);
+    assert_eq!(entry.size, 393215);
 }
 
 #[test]
@@ -379,4 +386,94 @@ fn test_mock4_files_recursive() {
 fn shared_fs_is_sync_send_static() {
     fn f<T: Sync + Send + 'static>() {  }
     f::<Shared<VFat>>();
+}
+
+#[test]
+fn mbr_get_partition() {
+    let mut device = get_partition(resource("mock1.fat32.img"), 0).unwrap();
+
+    let mut buffer = [0; 512];
+    let size = device.read_sector(0, &mut buffer).unwrap();
+    assert_eq!(size, 512);
+
+    let first16 = [0xeb, 0x58, 0x90, 0x42, 0x53, 0x44, 0x20, 0x20, 0x34, 0x2e, 0x34, 0x00, 0x02, 0x01, 0x20, 0x00];
+    assert_eq!(buffer[..16], first16);
+    let last16 = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0xaa];
+    assert_eq!(buffer[512-16..], last16);
+}
+
+#[test]
+fn block_device_read_by_offset() {
+    let mut device = get_partition(resource("mock1.fat32.img"), 0).unwrap();
+
+    let mut buffer = [0; 16];
+    device.read_by_offset(0, &mut buffer).unwrap();
+    let first16 = [0xeb, 0x58, 0x90, 0x42, 0x53, 0x44, 0x20, 0x20, 0x34, 0x2e, 0x34, 0x00, 0x02, 0x01, 0x20, 0x00];
+    assert_eq!(buffer, first16);
+
+    device.read_by_offset(512-16, &mut buffer).unwrap();
+    let last16 = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0xaa];
+    assert_eq!(buffer, last16);
+
+    device.read_by_offset(512-8, &mut buffer).unwrap();
+    let bytes = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x55, 0xaa, 0x52, 0x52, 0x61, 0x41, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(buffer, bytes);
+}
+
+#[test]
+fn vfat_fields() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut vfat = vfat.borrow_mut();
+    assert_eq!(vfat.device.sector_size(), 512);
+    assert_eq!(vfat.bytes_per_sector, 512);
+    assert_eq!(vfat.sectors_per_cluster, 1);
+    assert_eq!(vfat.sectors_per_fat, 3025);
+    assert_eq!(vfat.fat_start_sector, 32);
+    assert_eq!(vfat.data_start_sector, 6082);
+    assert_eq!(vfat.root_dir_cluster, 2);
+    assert_eq!(vfat.cluster_size_bytes(), 512);
+
+    let mut buffer = [0; 16];
+    vfat.read_cluster(2, 0, &mut buffer).unwrap();
+    let first16 = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(buffer, first16);
+
+    vfat.read_cluster(3, 0x11, &mut buffer).unwrap();
+    let bytes = [0x4c, 0x5a, 0x4c, 0x00, 0x00, 0x4e, 0x01, 0x5a, 0x4c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2e];
+    assert_eq!(buffer, bytes);
+
+    let entry = vfat.fat_entry(2).unwrap();
+    assert_eq!(entry.status(), ::vfat::fat::Status::Eoc(0xFFFFFFF));
+
+    let entry = vfat.fat_entry(5).unwrap();
+    assert_eq!(entry.status(), ::vfat::fat::Status::Data(6));
+}
+
+#[test]
+fn vfat_file() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut file = ::vfat::File::open(vfat, 2, 512);
+
+    let mut buffer = [0; 16];
+    file.read_exact(&mut buffer).unwrap();
+    let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(buffer, bytes);
+}
+
+
+#[test]
+fn vfat_file2() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut file = ::vfat::File::open(vfat, 2, 512);
+
+    let mut buffer = [0; 4];
+    let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
+    file.read_exact(&mut buffer).unwrap();
+    assert_eq!(buffer, bytes[0..4]);
+    file.read_exact(&mut buffer).unwrap();
+    assert_eq!(buffer, bytes[4..8]);
+    file.read_exact(&mut buffer).unwrap();
+    assert_eq!(buffer, bytes[8..12]);
+    file.read_exact(&mut buffer).unwrap();
+    assert_eq!(buffer, bytes[12..16]);
 }

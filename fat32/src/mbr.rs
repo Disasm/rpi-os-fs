@@ -14,19 +14,19 @@ pub struct CHS {
 #[repr(C, packed)]
 #[derive(Debug, Clone)]
 pub struct PartitionEntry {
-    boot_indicator: u8,
-    start_chs: CHS,
-    entry_type: u8,
-    end_chs: CHS,
-    start_lba: u32,
-    size: u32,
+    pub boot_indicator: u8,
+    pub start_chs: CHS,
+    pub entry_type: u8,
+    pub end_chs: CHS,
+    pub start_lba: u32,
+    pub size: u32,
 }
 
 /// The master boot record (MBR).
 #[repr(C, packed)]
 pub struct MasterBootRecord {
     _data: [u8; 446],
-    entries: [PartitionEntry; 4],
+    pub entries: [PartitionEntry; 4],
     signature: u16,
 }
 
