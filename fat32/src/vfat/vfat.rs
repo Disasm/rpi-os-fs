@@ -99,14 +99,6 @@ impl VFat {
     }
 }
 
-impl Shared<VFat> {
-    pub(crate) fn chain_iterator(&mut self, start_cluster: u32) -> ClusterChainIterator {
-        ClusterChainIterator {
-            cluster: FatEntry(start_cluster),
-            vfat: self.clone()
-        }
-    }
-}
 
 impl<'a> FileSystem for &'a Shared<VFat> {
     type File = File;
@@ -139,33 +131,5 @@ impl<'a> FileSystem for &'a Shared<VFat> {
 
     fn remove<P: AsRef<Path>>(self, _path: P, _children: bool) -> io::Result<()> {
         unimplemented!("read only file system")
-    }
-}
-
-pub struct ClusterChainIterator {
-    vfat: Shared<VFat>,
-    cluster: FatEntry,
-}
-
-
-impl Iterator for ClusterChainIterator {
-    type Item = io::Result<u32>;
-
-    fn next(&mut self) -> Option<<Self as Iterator>::Item> {
-        match self.cluster.status() {
-            Status::Data(cluster) => {
-                self.cluster = match self.vfat.borrow_mut().fat_entry(cluster) {
-                    Ok(entry) => entry,
-                    Err(e) => return Some(Err(e))
-                };
-                Some(Ok(cluster))
-            }
-            Status::Eoc(_) => {
-                None
-            }
-            _ => {
-                Some(Err(io::Error::from(io::ErrorKind::InvalidData)))
-            }
-        }
     }
 }

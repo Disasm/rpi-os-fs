@@ -4,7 +4,6 @@ use std::io::{self, SeekFrom};
 use traits;
 use vfat::{VFat, Shared};
 use traits::BlockDevice;
-use vfat::vfat::ClusterChainIterator;
 use vfat::Status;
 
 //#[derive(Debug)]
