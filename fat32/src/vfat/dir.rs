@@ -175,6 +175,7 @@ impl FallibleIterator for DirIterator {
                 for i in 1..lfn_entries_count {
                     if let Some(entry) = self.0.next()? {
                         if entry.is_lfn() {
+                            let lfn_entry = unsafe { entry.long_filename };
                             let lfn_entry_index = lfn_entry.sequence_number & 0x1F;
                             if lfn_entry_index != (lfn_entries_count - i) {
                                 return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid sequence number"));
@@ -210,11 +211,19 @@ impl FallibleIterator for DirIterator {
             };
 
             let regular_entry = unsafe { regular_entry.regular };
+            if (regular_entry.attributes & 0x08) != 0 { // skip volume id
+                return self.next();
+            }
             let file_name = if let Some(f) = long_name {
                 f
             } else {
-                format!("{}.{}", bytes_to_short_filename(&regular_entry.file_name)?,
-                                 bytes_to_short_filename(&regular_entry.file_ext)?)
+                let file_name = bytes_to_short_filename(&regular_entry.file_name)?;
+                let file_ext = bytes_to_short_filename(&regular_entry.file_ext)?;
+                if file_ext.len() > 0 {
+                    format!("{}.{}", file_name, file_ext)
+                } else {
+                    file_name.to_string()
+                }
             };
 
             let metadata = Metadata {
