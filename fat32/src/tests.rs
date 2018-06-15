@@ -11,35 +11,63 @@ use fallible_iterator::FallibleIterator;
 use chrono::{Datelike, Timelike};
 use std::io;
 
-macro check_size($T:ty, $size:expr) {
+mod mock {
+    use std::io::{Read, Write, Seek, Result, SeekFrom};
+    pub trait MockBlockDevice : Read + Write + Seek + Send {    }
+
+    impl<T: MockBlockDevice> ::traits::BlockDevice for T {
+        fn read_sector(&mut self, n: u64, buf: &mut [u8]) -> Result<usize> {
+            let sector_size = self.sector_size();
+            let to_read = ::std::cmp::min(sector_size as usize, buf.len());
+            self.seek(SeekFrom::Start(n * sector_size))?;
+            self.read_exact(&mut buf[..to_read])?;
+            Ok(to_read)
+        }
+
+        fn write_sector(&mut self, n: u64, buf: &[u8]) -> Result<usize> {
+            let sector_size = self.sector_size();
+            let to_write = ::std::cmp::min(sector_size as usize, buf.len());
+            self.seek(SeekFrom::Start(n * sector_size))?;
+            self.write_all(&buf[..to_write])?;
+            Ok(to_write)
+        }
+    }
+
+    impl<'a> MockBlockDevice for ::std::io::Cursor<&'a mut [u8]> { }
+    impl MockBlockDevice for ::std::io::Cursor<Vec<u8>> { }
+    impl MockBlockDevice for ::std::io::Cursor<Box<[u8]>> { }
+    impl MockBlockDevice for ::std::fs::File { }
+}
+
+macro assert_size_eq($T:ty, $size:expr) {
     assert_eq!(::std::mem::size_of::<$T>(), $size,
         "'{}' does not have the expected size of {}", stringify!($T), $size);
 }
 
-macro expect_variant($e:expr, $variant:pat $(if $($cond:tt)*)*) {
+macro assert_matches($e:expr, $variant:pat $(if $($cond:tt)*)*) {
     match $e {
         $variant $(if $($cond)*)* => {  },
         o => panic!("expected '{}' but found '{:?}'", stringify!($variant), o)
     }
 }
 
-macro resource($name:expr) {{
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../files/resources/", $name);
+fn resource(name: &str) -> ::std::fs::File {
+    let path = format!("{}/../files/resources/{}", env!("CARGO_MANIFEST_DIR"), name);
     match ::std::fs::File::open(path) {
         Ok(file) => file,
         Err(e) => {
             eprintln!("\nfailed to find assignment 2 resource '{}': {}\n\
-                       => perhaps you need to run 'make fetch'?", $name, e);
+                       => perhaps you need to run 'make fetch'?", name, e);
             panic!("missing resource");
         }
     }
-}}
+}
 
-macro assert_hash_eq($name:expr, $actual:expr, $expected:expr) {
-    let (actual, expected) = ($actual, $expected);
-    let (actual, expected) = (actual.trim(), expected.trim());
+fn assert_hash_eq(name: &str, actual: &str, expected: &str) {
+    let actual = actual.trim();
+    let expected = expected.trim();
     if actual != expected {
-        eprintln!("\nFile system hash failed for {}!\n", $name);
+        eprintln!("\nFile system hash failed for {}!\n", name);
         eprintln!("--------------- EXPECTED ---------------");
         eprintln!("{}", expected);
         eprintln!("---------------- ACTUAL ----------------");
@@ -49,29 +77,29 @@ macro assert_hash_eq($name:expr, $actual:expr, $expected:expr) {
     }
 }
 
-macro hash_for($name:expr) {{
-    let mut file = resource!(concat!("hashes/", $name));
+fn hash_for(name: &str) -> String {
+    let mut file = resource(&format!("hashes/{}", name));
     let mut string = String::new();
     file.read_to_string(&mut string).expect("read hash to string");
     string
-}}
+}
 
-macro vfat_from_resource($name:expr) {
-    VFat::from(get_partition(resource!($name), 0).expect("get_partition failed")).expect("failed to initialize VFAT from image")
+fn vfat_from_resource(name: &str) -> Shared<VFat> {
+    VFat::from(get_partition(resource(name), 0).expect("get_partition failed")).expect("failed to initialize VFAT from image")
 }
 
 #[test]
 fn check_mbr_size() {
-    check_size!(MasterBootRecord, 512);
-    check_size!(PartitionEntry, 16);
-    check_size!(CHS, 3);
+    assert_size_eq!(MasterBootRecord, 512);
+    assert_size_eq!(PartitionEntry, 16);
+    assert_size_eq!(CHS, 3);
 }
 
 #[test]
 fn check_mbr_signature() {
     let mut data = [0u8; 512];
     let e = MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).unwrap_err();
-    expect_variant!(e, ::mbr::Error::BadSignature);
+    assert_matches!(e, ::mbr::Error::BadSignature);
 
     data[510..].copy_from_slice(&[0x55, 0xAA]);
     MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).unwrap();
@@ -86,7 +114,7 @@ fn check_mbr_boot_indicator() {
         data[446 + (i.saturating_sub(1) * 16)] = 0;
         data[446 + (i * 16)] = 0xFF;
         let e = MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).unwrap_err();
-        expect_variant!(e, ::mbr::Error::UnknownBootIndicator(p) if p == i as u8);
+        assert_matches!(e, ::mbr::Error::UnknownBootIndicator(p) if p == i as u8);
     }
 
     data[446 + (3 * 16)] = 0;
@@ -95,7 +123,7 @@ fn check_mbr_boot_indicator() {
 
 #[test]
 fn test_mbr() {
-    let mut mbr = resource!("mbr.img");
+    let mut mbr = resource("mbr.img");
     let mut data = [0u8; 512];
     mbr.read_exact(&mut data).expect("read resource data");
     MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).expect("valid MBR");
@@ -103,7 +131,7 @@ fn test_mbr() {
 
 #[test]
 fn check_ebpb_size() {
-    check_size!(BiosParameterBlock, 512);
+    assert_size_eq!(BiosParameterBlock, 512);
 }
 
 #[test]
@@ -112,15 +140,15 @@ fn check_ebpb_signature() {
     data[510..512].copy_from_slice(&[0x55, 0xAA]);
 
     let e = BiosParameterBlock::read_from(&mut Cursor::new(&mut data[512..])).unwrap_err();
-    expect_variant!(e, ::vfat::Error::BadSignature);
+    assert_matches!(e, ::vfat::Error::BadSignature);
 
     BiosParameterBlock::read_from(&mut Cursor::new(&mut data[..])).unwrap();
 }
 
 #[test]
 fn test_ebpb() {
-    let mut ebpb1 = resource!("ebpb1.img");
-    let mut ebpb2 = resource!("ebpb2.img");
+    let mut ebpb1 = resource("ebpb1.img");
+    let mut ebpb2 = resource("ebpb2.img");
 
     let mut data = [0u8; 1024];
     ebpb1.read_exact(&mut data[..512]).expect("read resource data");
@@ -132,18 +160,18 @@ fn test_ebpb() {
 
 #[test]
 fn check_entry_sizes() {
-    check_size!(::vfat::dir::VFatRegularDirEntry, 32);
-    check_size!(::vfat::dir::VFatUnknownDirEntry, 32);
-    check_size!(::vfat::dir::VFatLfnDirEntry, 32);
-    check_size!(::vfat::dir::VFatDirEntry, 32);
+    assert_size_eq!(::vfat::dir::VFatRegularDirEntry, 32);
+    assert_size_eq!(::vfat::dir::VFatUnknownDirEntry, 32);
+    assert_size_eq!(::vfat::dir::VFatLfnDirEntry, 32);
+    assert_size_eq!(::vfat::dir::VFatDirEntry, 32);
 }
 
 #[test]
 fn test_vfat_init() {
-    vfat_from_resource!("mock1.fat32.img");
-    vfat_from_resource!("mock2.fat32.img");
-    vfat_from_resource!("mock3.fat32.img");
-    vfat_from_resource!("mock4.fat32.img");
+    vfat_from_resource("mock1.fat32.img");
+    vfat_from_resource("mock2.fat32.img");
+    vfat_from_resource("mock3.fat32.img");
+    vfat_from_resource("mock4.fat32.img");
 }
 
 fn hash_entry<T: Entry>(hash: &mut String, entry: &T) -> ::std::fmt::Result {
@@ -197,17 +225,17 @@ fn hash_dir_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
 
 #[test]
 fn test_root_entries() {
-    let hash = hash_dir_from(vfat_from_resource!("mock1.fat32.img"), "/");
-    assert_hash_eq!("mock 1 root directory", hash, hash_for!("root-entries-1"));
+    let hash = hash_dir_from(vfat_from_resource("mock1.fat32.img"), "/");
+    assert_hash_eq("mock 1 root directory", &hash, &hash_for("root-entries-1"));
 
-    let hash = hash_dir_from(vfat_from_resource!("mock2.fat32.img"), "/");
-    assert_hash_eq!("mock 2 root directory", hash, hash_for!("root-entries-2"));
+    let hash = hash_dir_from(vfat_from_resource("mock2.fat32.img"), "/");
+    assert_hash_eq("mock 2 root directory", &hash, &hash_for("root-entries-2"));
 
-    let hash = hash_dir_from(vfat_from_resource!("mock3.fat32.img"), "/");
-    assert_hash_eq!("mock 3 root directory", hash, hash_for!("root-entries-3"));
+    let hash = hash_dir_from(vfat_from_resource("mock3.fat32.img"), "/");
+    assert_hash_eq("mock 3 root directory", &hash, &hash_for("root-entries-3"));
 
-    let hash = hash_dir_from(vfat_from_resource!("mock4.fat32.img"), "/");
-    assert_hash_eq!("mock 4 root directory", hash, hash_for!("root-entries-4"));
+    let hash = hash_dir_from(vfat_from_resource("mock4.fat32.img"), "/");
+    assert_hash_eq("mock 4 root directory", &hash, &hash_for("root-entries-4"));
 }
 
 fn hash_dir_recursive<P: AsRef<Path>>(
@@ -244,17 +272,17 @@ fn hash_dir_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> Strin
 
 #[test]
 fn test_all_dir_entries() {
-    let hash = hash_dir_recursive_from(vfat_from_resource!("mock1.fat32.img"), "/");
-    assert_hash_eq!("mock 1 all dir entries", hash, hash_for!("all-entries-1"));
+    let hash = hash_dir_recursive_from(vfat_from_resource("mock1.fat32.img"), "/");
+    assert_hash_eq("mock 1 all dir entries", &hash, &hash_for("all-entries-1"));
 
-    let hash = hash_dir_recursive_from(vfat_from_resource!("mock2.fat32.img"), "/");
-    assert_hash_eq!("mock 2 all dir entries", hash, hash_for!("all-entries-2"));
+    let hash = hash_dir_recursive_from(vfat_from_resource("mock2.fat32.img"), "/");
+    assert_hash_eq("mock 2 all dir entries", &hash, &hash_for("all-entries-2"));
 
-    let hash = hash_dir_recursive_from(vfat_from_resource!("mock3.fat32.img"), "/");
-    assert_hash_eq!("mock 3 all dir entries", hash, hash_for!("all-entries-3"));
+    let hash = hash_dir_recursive_from(vfat_from_resource("mock3.fat32.img"), "/");
+    assert_hash_eq("mock 3 all dir entries", &hash, &hash_for("all-entries-3"));
 
-    let hash = hash_dir_recursive_from(vfat_from_resource!("mock4.fat32.img"), "/");
-    assert_hash_eq!("mock 4 all dir entries", hash, hash_for!("all-entries-4"));
+    let hash = hash_dir_recursive_from(vfat_from_resource("mock4.fat32.img"), "/");
+    assert_hash_eq("mock 4 all dir entries", &hash, &hash_for("all-entries-4"));
 }
 
 fn hash_file<T: File>(hash: &mut String, mut file: T) -> ::std::fmt::Result {
@@ -325,26 +353,26 @@ fn hash_files_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> Str
 
 #[test]
 fn test_mock1_files_recursive() {
-    let hash = hash_files_recursive_from(vfat_from_resource!("mock1.fat32.img"), "/");
-    assert_hash_eq!("mock 1 file hashes", hash, hash_for!("files-1"));
+    let hash = hash_files_recursive_from(vfat_from_resource("mock1.fat32.img"), "/");
+    assert_hash_eq("mock 1 file hashes", &hash, &hash_for("files-1"));
 }
 
 #[test]
 fn test_mock2_files_recursive() {
-    let hash = hash_files_recursive_from(vfat_from_resource!("mock2.fat32.img"), "/");
-    assert_hash_eq!("mock 2 file hashes", hash, hash_for!("files-2-3-4"));
+    let hash = hash_files_recursive_from(vfat_from_resource("mock2.fat32.img"), "/");
+    assert_hash_eq("mock 2 file hashes", &hash, &hash_for("files-2-3-4"));
 }
 
 #[test]
 fn test_mock3_files_recursive() {
-    let hash = hash_files_recursive_from(vfat_from_resource!("mock3.fat32.img"), "/");
-    assert_hash_eq!("mock 3 file hashes", hash, hash_for!("files-2-3-4"));
+    let hash = hash_files_recursive_from(vfat_from_resource("mock3.fat32.img"), "/");
+    assert_hash_eq("mock 3 file hashes", &hash, &hash_for("files-2-3-4"));
 }
 
 #[test]
 fn test_mock4_files_recursive() {
-    let hash = hash_files_recursive_from(vfat_from_resource!("mock4.fat32.img"), "/");
-    assert_hash_eq!("mock 4 file hashes", hash, hash_for!("files-2-3-4"));
+    let hash = hash_files_recursive_from(vfat_from_resource("mock4.fat32.img"), "/");
+    assert_hash_eq("mock 4 file hashes", &hash, &hash_for("files-2-3-4"));
 }
 
 #[test]
