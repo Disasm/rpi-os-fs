@@ -460,7 +460,6 @@ fn vfat_file() {
     assert_eq!(buffer, bytes);
 }
 
-
 #[test]
 fn vfat_file2() {
     let vfat = vfat_from_resource("mock1.fat32.img");
@@ -476,4 +475,78 @@ fn vfat_file2() {
     assert_eq!(buffer, bytes[8..12]);
     file.read_exact(&mut buffer).unwrap();
     assert_eq!(buffer, bytes[12..16]);
+}
+
+#[test]
+fn vfat_cluster_chain1() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+
+    let mut buffer = [0; 512];
+    chain.read_exact(&mut buffer).unwrap();
+    assert_eq!(chain.read(&mut buffer).unwrap(), 0);
+
+    let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(buffer[..16], bytes);
+}
+
+#[test]
+fn vfat_cluster_chain2() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+
+    let mut buffer = [0; 256];
+    chain.read_exact(&mut buffer).unwrap();
+    let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(buffer[..16], bytes);
+
+    chain.read_exact(&mut buffer).unwrap();
+    let bytes = [0; 16];
+    assert_eq!(buffer[..16], bytes);
+
+    assert_eq!(chain.read(&mut buffer).unwrap(), 0);
+}
+
+#[test]
+fn vfat_cluster_chain3() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+
+    let mut buffer = [0; 500];
+    chain.read_exact(&mut buffer).unwrap();
+    let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
+    assert_eq!(buffer[..16], bytes);
+
+    let mut buffer = [0; 50];
+    let size = chain.read(&mut buffer).unwrap();
+    assert_eq!(size, 12);
+    let bytes = [0; 12];
+    assert_eq!(buffer[..12], bytes);
+}
+
+#[test]
+fn vfat_cluster_chain4() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+
+    let mut buffer = [0; 500];
+    chain.read_exact(&mut buffer).unwrap();
+
+    let mut buffer = [0; 50];
+    chain.read_exact(&mut buffer).unwrap_err();
+}
+
+#[test]
+fn vfat_cluster_chain5() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 5);
+
+    let mut buffer = [0; 600];
+    chain.read_exact(&mut buffer).unwrap();
+
+    let bytes = [0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x35, 0x0d, 0x0a, 0x25, 0xb5, 0xb5, 0xb5, 0xb5, 0x0d];
+    assert_eq!(buffer[..16], bytes);
+
+    let bytes = [0x38, 0x20, 0x30, 0x20, 0x52, 0x20, 0x31, 0x36, 0x30, 0x20, 0x30, 0x20, 0x52, 0x20, 0x31, 0x36];
+    assert_eq!(buffer[512..512+16], bytes);
 }
