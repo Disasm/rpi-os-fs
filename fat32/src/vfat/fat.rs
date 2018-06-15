@@ -1,7 +1,4 @@
 use std::fmt;
-use vfat::*;
-
-use self::Status::*;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Status {

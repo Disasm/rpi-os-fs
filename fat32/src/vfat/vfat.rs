@@ -1,10 +1,8 @@
 use std::io;
 use std::path::Path;
 use std::mem::size_of;
-use std::cmp::min;
 
-use util::SliceExt;
-use vfat::{Shared, File, Dir, Entry, FatEntry, Error, Status};
+use vfat::{Shared, File, Dir, FatEntry, Error};
 use vfat::{self, BiosParameterBlock};
 use traits::{FileSystem, BlockDevice, FileSystemObject};
 use vfat::logical_block_device::LogicalBlockDevice;

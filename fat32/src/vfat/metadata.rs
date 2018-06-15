@@ -1,5 +1,3 @@
-use std::fmt;
-
 use traits::{self, Date, DateTime};
 
 /// File attributes as represented in FAT32 on-disk structures.

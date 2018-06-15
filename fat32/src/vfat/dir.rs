@@ -1,15 +1,11 @@
 use std::ffi::OsStr;
-use std::char::decode_utf16;
-use std::borrow::Cow;
 use std::io;
 
 use traits;
-use util::VecExt;
-use vfat::{VFat, Shared, File, Entry};
+use vfat::{VFat, Shared, Entry};
 use std::mem;
 use std::io::Read;
 use fallible_iterator::FallibleIterator;
-use fallible_iterator::Peekable;
 use traits::{Date, Time, DateTime};
 use vfat::metadata::Metadata;
 use vfat::metadata::Attributes;

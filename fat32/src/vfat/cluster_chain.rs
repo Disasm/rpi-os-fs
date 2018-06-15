@@ -10,7 +10,7 @@ pub struct ClusterChain {
     cluster_size_bytes: u32,
     previous_cluster: Option<u32>,
     current_cluster: Option<u32>,
-    position: u32,
+    pub(crate) position: u32,
 }
 
 impl ClusterChain {
