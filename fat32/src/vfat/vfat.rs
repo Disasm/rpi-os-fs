@@ -5,11 +5,10 @@ use std::cmp::min;
 
 use util::SliceExt;
 use vfat::{Shared, File, Dir, Entry, FatEntry, Error, Status};
-use vfat::{BiosParameterBlock};
-use traits::{FileSystem, BlockDevice};
+use vfat::{self, BiosParameterBlock};
+use traits::{FileSystem, BlockDevice, FileSystemObject};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::mem;
-use vfat::file_system_object::FileSystemObject;
 use std::path::Component;
 
 pub struct VFat {
@@ -103,14 +102,20 @@ impl VFat {
 impl<'a> FileSystem for &'a Shared<VFat> {
     type File = File;
     type Dir = Dir;
-    type FileSystemObject = FileSystemObject;
+    type FileSystemObject = vfat::FileSystemObject;
 
     fn open<P: AsRef<Path>>(self, path: P) -> io::Result<Self::FileSystemObject> {
-        if path.as_ref().components().collect::<Vec<_>>() == [Component::RootDir] {
-            Ok(FileSystemObject::root(self.clone()))
-        } else {
-            unimplemented!("FileSystem::open()")
+        let mut parent = vfat::FileSystemObject::root(self.clone());
+        for component in path.as_ref().components() {
+            if component != Component::RootDir {
+                if !parent.is_dir() {
+                    return Err(io::Error::from(io::ErrorKind::NotFound));
+                }
+                let entry = parent.into_dir().unwrap().find(component)?;
+                parent = vfat::FileSystemObject::from_entry(self.clone(), entry);
+            }
         }
+        Ok(parent)
     }
 
     fn create_file<P: AsRef<Path>>(self, _path: P) -> io::Result<Self::File> {

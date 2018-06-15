@@ -18,5 +18,6 @@ pub use self::error::Error;
 pub use self::vfat::VFat;
 pub use self::entry::Entry;
 pub use self::shared::Shared;
+pub use self::file_system_object::FileSystemObject;
 
 pub(crate) use self::fat::{Status, FatEntry};

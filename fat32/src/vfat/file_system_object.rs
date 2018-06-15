@@ -46,7 +46,7 @@ impl traits::FileSystemObject for FileSystemObject {
 
     fn into_dir(self) -> Option<Dir> {
         if self.is_dir {
-            Some(Dir::open(self.vfat, self.first_cluster, self.size))
+            Some(Dir::open(self.vfat, self.first_cluster))
         } else {
             None
         }

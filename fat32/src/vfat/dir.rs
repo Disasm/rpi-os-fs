@@ -13,16 +13,16 @@ use fallible_iterator::Peekable;
 use traits::{Date, Time, DateTime};
 use vfat::metadata::Metadata;
 use vfat::metadata::Attributes;
+use vfat::cluster_chain::ClusterChain;
 
 //#[derive(Debug)]
 pub struct Dir {
     vfat: Shared<VFat>,
     start_cluster: u32,
-    size: u32,
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct VFatRegularDirEntry {
     file_name: [u8; 8],
     file_ext: [u8; 3],
@@ -40,7 +40,7 @@ pub struct VFatRegularDirEntry {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct VFatLfnDirEntry {
     sequence_number: u8,
     name: [u16; 5],
@@ -53,7 +53,7 @@ pub struct VFatLfnDirEntry {
 }
 
 #[repr(C, packed)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct VFatUnknownDirEntry {
     first_byte: u8,
     _unknown: [u8; 10],
@@ -82,15 +82,14 @@ impl VFatDirEntry {
 }
 
 impl Dir {
-    pub fn open(vfat: Shared<VFat>, start_cluster: u32, size: u32) -> Dir {
+    pub fn open(vfat: Shared<VFat>, start_cluster: u32) -> Dir {
         Dir {
             vfat,
             start_cluster,
-            size,
         }
     }
     /// Finds the entry named `name` in `self` and returns it. Comparison is
-    /// case-insensitive.
+    /// case-sensitive.
     ///
     /// # Errors
     ///
@@ -100,12 +99,17 @@ impl Dir {
     /// If `name` contains invalid UTF-8 characters, an error of `InvalidInput`
     /// is returned.
     pub fn find<P: AsRef<OsStr>>(&self, name: P) -> io::Result<Entry> {
-        unimplemented!("Dir::find()")
+        use traits::Dir;
+        if let Some(name) = name.as_ref().to_str() {
+            self.entries()?.find(|entry| &entry.name == name)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+        } else {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        }
     }
 }
 
 struct RawDirIterator {
-    file: File,
+    chain: ClusterChain,
 }
 
 impl FallibleIterator for RawDirIterator {
@@ -113,11 +117,11 @@ impl FallibleIterator for RawDirIterator {
     type Error = io::Error;
 
     fn next(&mut self) -> io::Result<Option<VFatDirEntry>> {
-        if self.file.at_end() {
+        if self.chain.at_end() {
             return Ok(None);
         }
         let mut buf = [0; 32];
-        self.file.read_exact(&mut buf)?;
+        self.chain.read_exact(&mut buf)?;
         let entry: VFatDirEntry = unsafe { mem::transmute(buf) };
         if unsafe { entry.unknown }.first_byte != 0x00 {
             Ok(Some(entry))
@@ -147,7 +151,6 @@ fn decode_date(raw_date: u16) -> io::Result<Date> {
     let year = (raw_date >> 9) + 1980;
     let month = (raw_date >> 5) & 0b1111;
     let second = raw_date & 0b11111;
-    //println!("raw_date: {:x}, year: {}, month: {}, second: {}", raw_date, year, month, second);
     Date::from_ymd_opt(year as i32, month as u32, second as u32).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid date"))
 }
 
@@ -252,7 +255,7 @@ impl traits::Dir for Dir {
 
     fn entries(&self) -> io::Result<DirIterator> {
         let raw_iterator = RawDirIterator {
-            file: File::open(self.vfat.clone(), self.start_cluster, self.size)
+            chain: ClusterChain::open(self.vfat.clone(), self.start_cluster)
         };
         Ok(DirIterator(raw_iterator))
     }
