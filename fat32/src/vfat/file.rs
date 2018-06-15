@@ -19,7 +19,7 @@ impl File {
     }
 
     pub fn at_end(&self) -> bool {
-        self.chain.position == self.size
+        self.chain.position == self.size as u64
     }
 }
 
@@ -28,7 +28,7 @@ impl io::Read for File {
         if self.at_end() {
             return Ok(0);
         }
-        let read_size = min(buf.len() as u32, self.size - self.chain.position);
+        let read_size = min(buf.len() as u64, self.size as u64 - self.chain.position);
         self.chain.read(&mut buf[..read_size as usize])
     }
 }
@@ -68,6 +68,19 @@ impl io::Seek for File {
     /// Seeking before the start of a file or beyond the end of the file results
     /// in an `InvalidInput` error.
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        unimplemented!("File::seek()")
+        let new_pos = match pos {
+            SeekFrom::Start(p) => {
+                if p > ::std::u32::MAX as u64 {
+                    return Err(io::Error::from(io::ErrorKind::InvalidInput));
+                }
+                p as i64
+            }
+            SeekFrom::End(p) => self.size as i64 - p,
+            SeekFrom::Current(p) => self.chain.position as i64 + p,
+        };
+        if new_pos < 0 || new_pos > self.size as i64 {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        self.chain.seek(SeekFrom::Start(new_pos as u64))
     }
 }

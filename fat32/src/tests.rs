@@ -9,7 +9,6 @@ use mbr::{MasterBootRecord, CHS, PartitionEntry, get_partition};
 use traits::*;
 use fallible_iterator::FallibleIterator;
 use chrono::{Datelike, Timelike};
-use std::io;
 
 mod mock {
     use std::io::{Read, Write, Seek, Result, SeekFrom};

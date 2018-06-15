@@ -10,11 +10,11 @@ pub struct ClusterChain {
     cluster_size_bytes: u32,
     previous_cluster: Option<u32>,
     current_cluster: Option<u32>,
-    pub(crate) position: u32,
+    pub(crate) position: u64,
 }
 
 impl ClusterChain {
-    pub fn open(mut vfat: Shared<VFat>, start_cluster: u32) -> ClusterChain {
+    pub fn open(vfat: Shared<VFat>, start_cluster: u32) -> ClusterChain {
         let cluster_size_bytes = vfat.borrow().cluster_size_bytes();
         ClusterChain {
             vfat,
@@ -36,18 +36,18 @@ impl ClusterChain {
         self.current_cluster = Some(self.start_cluster);
     }
 
-    fn cluster_index(&self, pos: u32) -> u32 {
-        pos / self.cluster_size_bytes
+    fn cluster_index(&self, pos: u64) -> u64 {
+        pos / self.cluster_size_bytes as u64
     }
 
-    fn advance(&mut self, bytes: u32) -> io::Result<()> {
+    fn advance(&mut self, bytes: u64) -> io::Result<()> {
         let final_pos = self.position + bytes;
         while self.position < final_pos {
             if self.current_cluster.is_none() {
                 return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
             }
             let next_cluster_index = self.cluster_index(self.position) + 1;
-            let next_cluster_start_pos = next_cluster_index * self.cluster_size_bytes;
+            let next_cluster_start_pos = next_cluster_index * self.cluster_size_bytes as u64;
 
             if final_pos < next_cluster_start_pos {
                 self.position = final_pos;
@@ -67,6 +67,19 @@ impl ClusterChain {
         }
         Ok(())
     }
+
+    fn advance_to_end(&mut self) -> io::Result<()> {
+        let next_cluster_index = self.cluster_index(self.position) + 1;
+        let next_cluster_start_pos = next_cluster_index * self.cluster_size_bytes as u64;
+        let position = self.position;
+        let cluster_size_bytes = self.cluster_size_bytes;
+        self.advance(next_cluster_start_pos - position)?;
+        while !self.at_end() {
+            self.advance(cluster_size_bytes as u64)?;
+        }
+        Ok(())
+    }
+
 }
 
 impl io::Read for ClusterChain {
@@ -78,12 +91,13 @@ impl io::Read for ClusterChain {
             }
             let buf_tail = &mut buf[total_read_size..];
 
-            let cluster_offset = self.position % self.cluster_size_bytes;
-            let read_size = min(self.cluster_size_bytes - cluster_offset, buf_tail.len() as u32);
+            let cluster_offset = self.position % self.cluster_size_bytes as u64;
+            let read_size = min(self.cluster_size_bytes as u64 - cluster_offset, buf_tail.len() as u64);
             if read_size == 0 {
                 break;
             }
-            self.vfat.borrow_mut().read_cluster(self.current_cluster.unwrap(), cluster_offset, &mut buf_tail[..read_size as usize])?;
+            self.vfat.borrow_mut().read_cluster(self.current_cluster.unwrap(), cluster_offset as u32,
+                                                &mut buf_tail[..read_size as usize])?;
             self.advance(read_size)?;
             total_read_size += read_size as usize;
         }
@@ -116,6 +130,33 @@ impl io::Seek for ClusterChain {
     /// Seeking before the start of a file or beyond the end of the file results
     /// in an `InvalidInput` error.
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        unimplemented!("ClusterChain::seek()")
+        let new_pos = match pos {
+            SeekFrom::Start(p) => p,
+            SeekFrom::End(p) => {
+                if p < 0 {
+                    return Err(io::Error::from(io::ErrorKind::InvalidInput));
+                }
+                self.advance_to_end()?;
+                if p as u64 > self.position {
+                    return Err(io::Error::from(io::ErrorKind::InvalidInput));
+                }
+                self.position - p as u64
+            },
+            SeekFrom::Current(p) => {
+                let r = self.position as i64 + p;
+                if r < 0 {
+                    return Err(io::Error::from(io::ErrorKind::InvalidInput));
+                }
+                r as u64
+            },
+        };
+        let position = self.position;
+        if new_pos < position {
+            self.rewind();
+            self.advance(new_pos)?;
+        } else {
+            self.advance(new_pos - position)?;
+        }
+        Ok(self.position)
     }
 }

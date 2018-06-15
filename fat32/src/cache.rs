@@ -11,7 +11,7 @@ struct CacheEntry {
 }
 
 
-struct CachedDevice<T: BlockDevice> {
+pub struct CachedDevice<T: BlockDevice> {
     source: T,
     cache: HashMap<u64, CacheEntry>,
 }
@@ -23,14 +23,14 @@ impl<T: BlockDevice> Drop for CachedDevice<T> {
 }
 
 impl<T: BlockDevice> CachedDevice<T> {
-    fn new(source: T) -> Self {
+    pub fn new(source: T) -> Self {
         CachedDevice {
             source,
             cache: HashMap::new(),
         }
     }
 
-    fn sync(&mut self) -> io::Result<()> {
+    pub fn sync(&mut self) -> io::Result<()> {
         for (sector, entry) in &mut self.cache {
             if entry.is_dirty {
                 self.source.write_sector(*sector, &entry.data)?;
@@ -40,7 +40,7 @@ impl<T: BlockDevice> CachedDevice<T> {
         Ok(())
     }
 
-    pub fn cache_entry(&mut self, sector: u64) -> io::Result<&mut CacheEntry> {
+    fn cache_entry(&mut self, sector: u64) -> io::Result<&mut CacheEntry> {
         if !self.cache.contains_key(&sector) {
             let mut cache_entry = CacheEntry {
                 data: Vec::new(),

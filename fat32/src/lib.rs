@@ -11,7 +11,7 @@ compile_error!("only little endian platforms supported");
 mod tests;
 mod mbr;
 mod partition;
-mod cache;
+pub mod cache;
 
 pub mod vfat;
 pub mod traits;

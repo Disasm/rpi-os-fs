@@ -51,7 +51,7 @@ impl MasterBootRecord {
     /// reading the MBR.
     pub fn read_from<T: BlockDevice>(device: &mut T) -> Result<MasterBootRecord, Error> {
         let mut buf = [0; 512];
-        let size = device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
+        device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
         let mbr: MasterBootRecord = unsafe { ::std::mem::transmute(buf) };
         if mbr.signature != 0xAA55 {
             return Err(Error::BadSignature)
@@ -81,6 +81,9 @@ pub fn get_partition<T: BlockDevice>(mut device: T, partition_number: usize) -> 
 
 impl fmt::Debug for MasterBootRecord {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        unimplemented!("MasterBootRecord::fmt()")
+        f.debug_struct("FatEntry")
+            .field("entries", &self.entries)
+            .field("signature", &self.signature)
+            .finish()
     }
 }

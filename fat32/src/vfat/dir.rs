@@ -140,7 +140,7 @@ fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "filename contains non-ascii characters"));
     }
 
-    ::std::str::from_utf8(data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, "can't parse filename as UTF-8"))
+    ::std::str::from_utf8(data).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "can't parse filename as UTF-8"))
 }
 
 fn decode_date(raw_date: u16) -> io::Result<Date> {

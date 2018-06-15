@@ -51,12 +51,12 @@ impl BiosParameterBlock {
         device: &mut T
     ) -> Result<BiosParameterBlock, Error> {
         let mut buf = [0; 512];
-        let size = device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
-        let pbp: BiosParameterBlock = unsafe { ::std::mem::transmute(buf) };
-        if pbp.signature != 0xAA55 {
+        device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;
+        let bpb: BiosParameterBlock = unsafe { ::std::mem::transmute(buf) };
+        if bpb.signature != 0xAA55 {
             return Err(Error::BadSignature)
         }
-        Ok(pbp)
+        Ok(bpb)
     }
 }
 
