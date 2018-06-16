@@ -8,6 +8,7 @@ use traits::{FileSystem, BlockDevice, FileSystemObject};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::mem;
 use std::path::Component;
+use vfat::Entry;
 
 pub struct VFat {
     pub(crate) device: Box<BlockDevice>,
@@ -101,6 +102,16 @@ impl VFat {
 }
 
 
+impl Shared<VFat> {
+    pub fn open_entry(&self, entry: &Entry) -> vfat::FileSystemObject {
+        vfat::FileSystemObject::from_entry(self.clone(), entry)
+    }
+
+    pub fn root(&self) -> vfat::Dir {
+        vfat::FileSystemObject::root(self.clone()).into_dir().unwrap()
+    }
+}
+
 impl<'a> FileSystem for &'a Shared<VFat> {
     type File = File;
     type Dir = Dir;
@@ -114,7 +125,7 @@ impl<'a> FileSystem for &'a Shared<VFat> {
                     return Err(io::Error::from(io::ErrorKind::NotFound));
                 }
                 let entry = parent.into_dir().unwrap().find(component)?;
-                parent = vfat::FileSystemObject::from_entry(self.clone(), entry);
+                parent = self.open_entry(&entry);
             }
         }
         Ok(parent)

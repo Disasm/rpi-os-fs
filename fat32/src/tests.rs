@@ -337,7 +337,7 @@ fn hash_files_recursive<P: AsRef<Path>>(
         let path = path.join(entry.name());
         if entry.is_file() && !entry.name().starts_with(".BC.T") {
             use std::fmt::Write;
-            let file = ::vfat::file_system_object::FileSystemObject::from_entry(vfat.clone(), entry).into_file().unwrap();
+            let file = vfat.open_entry(&entry).into_file().unwrap();
             if file.size() < (1 << 20) {
                 write!(hash, "{}: ", path.display())?;
                 hash_file(hash, file).expect("successful hash");

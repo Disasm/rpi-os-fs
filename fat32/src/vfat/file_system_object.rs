@@ -12,7 +12,7 @@ pub struct FileSystemObject {
 }
 
 impl FileSystemObject {
-    pub fn from_entry(vfat: Shared<VFat>, entry: Entry) -> Self {
+    pub fn from_entry(vfat: Shared<VFat>, entry: &Entry) -> Self {
         Self {
             vfat,
             first_cluster: entry.metadata.first_cluster,
@@ -26,7 +26,7 @@ impl FileSystemObject {
         Self {
             vfat,
             first_cluster,
-            size: 1_000_000,
+            size: 0,
             is_dir: true,
         }
     }
