@@ -38,4 +38,8 @@ impl BlockDevice for LogicalBlockDevice {
         self.source.write_by_offset(source_offset, buf2)?;
         Ok(buf2.len())
     }
+
+    fn sync(&mut self) -> io::Result<()> {
+        self.source.sync()
+    }
 }

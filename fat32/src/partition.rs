@@ -40,4 +40,8 @@ impl<T: BlockDevice> BlockDevice for Partition<T> {
         let m = self.to_source_sector(n)?;
         self.source.write_sector(m, buf)
     }
+
+    fn sync(&mut self) -> io::Result<()> {
+        self.source.sync()
+    }
 }

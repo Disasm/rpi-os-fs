@@ -1,8 +1,8 @@
 use std::io;
 use std::cmp::min;
 use std::ops::Range;
-use std::io::Error;
 use std::ops::{Deref, DerefMut};
+
 struct IOOperationChunk {
     sector: u64,
     buf_offset: usize,
@@ -155,6 +155,8 @@ pub trait BlockDevice: Send {
     /// error of `UnexpectedEof` if the length of `buf` is less than
     /// `self.sector_size()`.
     fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<usize>;
+
+    fn sync(&mut self) -> io::Result<()>;
 }
 
 /*impl<'a, T: BlockDevice> BlockDevice for &'a mut T {
@@ -172,11 +174,15 @@ impl BlockDevice for Box<BlockDevice> {
         self.deref().sector_size()
     }
 
-    fn read_sector(&mut self, sector: u64, buf: &mut [u8]) -> Result<usize, Error> {
+    fn read_sector(&mut self, sector: u64, buf: &mut [u8]) -> io::Result<usize> {
         self.deref_mut().read_sector(sector, buf)
     }
 
-    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> Result<usize, Error> {
+    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<usize> {
         self.deref_mut().write_sector(sector, buf)
+    }
+
+    fn sync(&mut self) -> io::Result<()> {
+        self.deref_mut().sync()
     }
 }

@@ -30,16 +30,6 @@ impl<T: BlockDevice> CachedDevice<T> {
         }
     }
 
-    pub fn sync(&mut self) -> io::Result<()> {
-        for (sector, entry) in &mut self.cache {
-            if entry.is_dirty {
-                self.source.write_sector(*sector, &entry.data)?;
-                entry.is_dirty = false;
-            }
-        }
-        Ok(())
-    }
-
     fn cache_entry(&mut self, sector: u64) -> io::Result<&mut CacheEntry> {
         if !self.cache.contains_key(&sector) {
             let mut cache_entry = CacheEntry {
@@ -75,5 +65,15 @@ impl<T: BlockDevice> BlockDevice for CachedDevice<T> {
         cache_entry.data[..bytes].copy_from_slice(&buf[..bytes]);
         cache_entry.is_dirty = true;
         return Ok(bytes);
+    }
+
+    fn sync(&mut self) -> io::Result<()> {
+        for (sector, entry) in &mut self.cache {
+            if entry.is_dirty {
+                self.source.write_sector(*sector, &entry.data)?;
+                entry.is_dirty = false;
+            }
+        }
+        Ok(())
     }
 }

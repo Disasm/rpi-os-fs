@@ -31,6 +31,10 @@ mod mock {
             self.write_all(&buf[..to_write])?;
             Ok(to_write)
         }
+
+        fn sync(&mut self) -> Result<()> {
+            Write::flush(self)
+        }
     }
 
     impl<'a> MockBlockDevice for ::std::io::Cursor<&'a mut [u8]> { }
