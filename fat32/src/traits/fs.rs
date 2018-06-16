@@ -6,9 +6,6 @@ use fallible_iterator::FallibleIterator;
 
 /// Trait implemented by files in the file system.
 pub trait File: io::Read + io::Write + io::Seek + Sized {
-    /// Writes any buffered data to disk.
-    fn sync(&mut self) -> io::Result<()>;
-
     /// Returns the size of the file in bytes.
     fn size(&self) -> u64;
 }

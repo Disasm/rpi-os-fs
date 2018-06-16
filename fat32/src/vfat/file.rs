@@ -44,10 +44,6 @@ impl io::Write for File {
 }
 
 impl traits::File for File {
-    fn sync(&mut self) -> io::Result<()> {
-        unimplemented!()
-    }
-
     fn size(&self) -> u64 {
         self.size as u64
     }
