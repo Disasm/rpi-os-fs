@@ -2,6 +2,7 @@ use traits::BlockDevice;
 use std::io;
 use std::collections::HashMap;
 use std::cmp::min;
+use std::cell::RefCell;
 
 
 #[derive(Debug)]
@@ -10,10 +11,26 @@ struct CacheEntry {
     is_dirty: bool
 }
 
+struct Cache(HashMap<u64, CacheEntry>);
+
+impl Cache {
+    fn cache_entry<T: BlockDevice>(&mut self, sector: u64, device: &T) -> io::Result<&mut CacheEntry> {
+        if !self.0.contains_key(&sector) {
+            let mut cache_entry = CacheEntry {
+                data: Vec::new(),
+                is_dirty: false,
+            };
+            cache_entry.data.resize(device.sector_size() as usize, 0);
+            device.read_sector(sector, &mut cache_entry.data)?;
+            self.0.insert(sector, cache_entry);
+        }
+        Ok(self.0.get_mut(&sector).unwrap())
+    }
+}
 
 pub struct CachedDevice<T: BlockDevice> {
     source: T,
-    cache: HashMap<u64, CacheEntry>,
+    cache: RefCell<Cache>,
 }
 
 impl<T: BlockDevice> Drop for CachedDevice<T> {
@@ -26,24 +43,9 @@ impl<T: BlockDevice> CachedDevice<T> {
     pub fn new(source: T) -> Self {
         CachedDevice {
             source,
-            cache: HashMap::new(),
+            cache: RefCell::new(Cache(HashMap::new())),
         }
     }
-
-    fn cache_entry(&mut self, sector: u64) -> io::Result<&mut CacheEntry> {
-        if !self.cache.contains_key(&sector) {
-            let mut cache_entry = CacheEntry {
-                data: Vec::new(),
-                is_dirty: false,
-            };
-            cache_entry.data.resize(self.source.sector_size() as usize, 0);
-            self.source.read_sector(sector, &mut cache_entry.data)?;
-            self.cache.insert(sector, cache_entry);
-        }
-        Ok(self.cache.get_mut(&sector).unwrap())
-    }
-
-
 }
 
 impl<T: BlockDevice> BlockDevice for CachedDevice<T> {
@@ -51,8 +53,9 @@ impl<T: BlockDevice> BlockDevice for CachedDevice<T> {
         self.source.sector_size()
     }
 
-    fn read_sector(&mut self, n: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
-        let cache_entry = self.cache_entry(n)?;
+    fn read_sector(&self, n: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+        let mut cache = self.cache.borrow_mut();
+        let cache_entry = cache.cache_entry(n, &self.source)?;
         let bytes = min(cache_entry.data.len(), buf.len());
         buf[..bytes].copy_from_slice(&cache_entry.data[..bytes]);
         return Ok(bytes);
@@ -60,7 +63,8 @@ impl<T: BlockDevice> BlockDevice for CachedDevice<T> {
     }
 
     fn write_sector(&mut self, n: u64, buf: &[u8]) -> Result<usize, io::Error> {
-        let cache_entry = self.cache_entry(n)?;
+        let mut cache = self.cache.borrow_mut();
+        let cache_entry = cache.cache_entry(n, &self.source)?;
         let bytes = min(cache_entry.data.len(), buf.len());
         cache_entry.data[..bytes].copy_from_slice(&buf[..bytes]);
         cache_entry.is_dirty = true;
@@ -68,7 +72,7 @@ impl<T: BlockDevice> BlockDevice for CachedDevice<T> {
     }
 
     fn sync(&mut self) -> io::Result<()> {
-        for (sector, entry) in &mut self.cache {
+        for (sector, entry) in &mut self.cache.borrow_mut().0 {
             if entry.is_dirty {
                 self.source.write_sector(*sector, &entry.data)?;
                 entry.is_dirty = false;

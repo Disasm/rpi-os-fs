@@ -82,9 +82,9 @@ pub trait BlockDevice: Send {
     /// # Errors
     ///
     /// Returns an error if seeking or reading from `self` fails.
-    fn read_sector(&mut self, sector: u64, buf: &mut [u8]) -> io::Result<usize>;
+    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<usize>;
 
-    fn read_by_offset(&mut self, offset_bytes: u64, buf: &mut [u8]) -> io::Result<()> {
+    fn read_by_offset(&self, offset_bytes: u64, buf: &mut [u8]) -> io::Result<()> {
         let mut read_sector_buf = Vec::new();
         read_sector_buf.resize(self.sector_size() as usize, 0);
         for chunk in IOOperationIterator::new(self.sector_size() as usize,
@@ -174,8 +174,8 @@ impl BlockDevice for Box<BlockDevice> {
         self.deref().sector_size()
     }
 
-    fn read_sector(&mut self, sector: u64, buf: &mut [u8]) -> io::Result<usize> {
-        self.deref_mut().read_sector(sector, buf)
+    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<usize> {
+        self.deref().read_sector(sector, buf)
     }
 
     fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<usize> {

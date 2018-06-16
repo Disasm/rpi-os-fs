@@ -10,30 +10,35 @@ use traits::*;
 use fallible_iterator::FallibleIterator;
 use chrono::{Datelike, Timelike};
 use std::io::SeekFrom;
+use std::cell::RefCell;
 
 mod mock {
     use std::io::{Read, Write, Seek, Result, SeekFrom};
+    use std::cell::RefCell;
+
     pub trait MockBlockDevice : Read + Write + Seek + Send {    }
 
-    impl<T: MockBlockDevice> ::traits::BlockDevice for T {
-        fn read_sector(&mut self, n: u64, buf: &mut [u8]) -> Result<usize> {
+    impl<T: MockBlockDevice> ::traits::BlockDevice for RefCell<T> {
+        fn read_sector(&self, n: u64, buf: &mut [u8]) -> Result<usize> {
+            let mut self1 = self.borrow_mut();
             let sector_size = self.sector_size();
             let to_read = ::std::cmp::min(sector_size as usize, buf.len());
-            self.seek(SeekFrom::Start(n * sector_size))?;
-            self.read_exact(&mut buf[..to_read])?;
+            self1.seek(SeekFrom::Start(n * sector_size))?;
+            self1.read_exact(&mut buf[..to_read])?;
             Ok(to_read)
         }
 
         fn write_sector(&mut self, n: u64, buf: &[u8]) -> Result<usize> {
+            let mut self1 = self.borrow_mut();
             let sector_size = self.sector_size();
             let to_write = ::std::cmp::min(sector_size as usize, buf.len());
-            self.seek(SeekFrom::Start(n * sector_size))?;
-            self.write_all(&buf[..to_write])?;
+            self1.seek(SeekFrom::Start(n * sector_size))?;
+            self1.write_all(&buf[..to_write])?;
             Ok(to_write)
         }
 
         fn sync(&mut self) -> Result<()> {
-            Write::flush(self)
+            self.borrow_mut().flush()
         }
     }
 
@@ -71,7 +76,7 @@ fn load_disk_image_part(name: &str) -> ::std::io::Cursor<Vec<u8>> {
 }
 
 fn load_partition(name: &str) -> impl BlockDevice {
-    get_partition(load_disk_image_part(name), 0).expect("get_partition failed")
+    get_partition(RefCell::from(load_disk_image_part(name)), 0).expect("get_partition failed")
 }
 
 
@@ -116,11 +121,11 @@ fn check_mbr_size() {
 #[test]
 fn check_mbr_signature() {
     let mut data = [0u8; 512];
-    let e = MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).unwrap_err();
+    let e = MasterBootRecord::read_from(&RefCell::from(Cursor::new(&mut data[..]))).unwrap_err();
     assert_matches!(e, ::mbr::Error::BadSignature);
 
     data[510..].copy_from_slice(&[0x55, 0xAA]);
-    MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).unwrap();
+    MasterBootRecord::read_from(&RefCell::from(Cursor::new(&mut data[..]))).unwrap();
 }
 
 #[test]
@@ -131,12 +136,12 @@ fn check_mbr_boot_indicator() {
     for i in 0..4usize {
         data[446 + (i.saturating_sub(1) * 16)] = 0;
         data[446 + (i * 16)] = 0xFF;
-        let e = MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).unwrap_err();
+        let e = MasterBootRecord::read_from(&RefCell::from(Cursor::new(&mut data[..]))).unwrap_err();
         assert_matches!(e, ::mbr::Error::UnknownBootIndicator(p) if p == i as u8);
     }
 
     data[446 + (3 * 16)] = 0;
-    MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).unwrap();
+    MasterBootRecord::read_from(&RefCell::from(Cursor::new(&mut data[..]))).unwrap();
 }
 
 #[test]
@@ -144,7 +149,7 @@ fn test_mbr() {
     let mut mbr = load_disk_image_part("mbr.img");
     let mut data = [0u8; 512];
     mbr.read_exact(&mut data).expect("read resource data");
-    let mbr = MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).expect("valid MBR");
+    let mbr = MasterBootRecord::read_from(&RefCell::from(Cursor::new(&mut data[..]))).expect("valid MBR");
     assert_eq!(mbr.entries[0].entry_type, 0x0b);
     assert_eq!(mbr.entries[1].entry_type, 0x00);
     assert_eq!(mbr.entries[2].entry_type, 0x00);
@@ -164,10 +169,10 @@ fn check_ebpb_signature() {
     let mut data = [0u8; 1024];
     data[510..512].copy_from_slice(&[0x55, 0xAA]);
 
-    let e = BiosParameterBlock::read_from(&mut Cursor::new(&mut data[512..])).unwrap_err();
+    let e = BiosParameterBlock::read_from(&RefCell::from(Cursor::new(&mut data[512..]))).unwrap_err();
     assert_matches!(e, ::vfat::Error::BadSignature);
 
-    BiosParameterBlock::read_from(&mut Cursor::new(&mut data[..])).unwrap();
+    BiosParameterBlock::read_from(&RefCell::from(Cursor::new(&mut data[..]))).unwrap();
 }
 
 #[test]
@@ -179,8 +184,8 @@ fn test_ebpb() {
     ebpb1.read_exact(&mut data[..512]).expect("read resource data");
     ebpb2.read_exact(&mut data[512..]).expect("read resource data");
 
-    BiosParameterBlock::read_from(&mut Cursor::new(&mut data[..])).expect("valid EBPB");
-    BiosParameterBlock::read_from(&mut Cursor::new(&mut data[512..])).expect("valid EBPB");
+    BiosParameterBlock::read_from(&RefCell::from(Cursor::new(&mut data[..]))).expect("valid EBPB");
+    BiosParameterBlock::read_from(&RefCell::from(Cursor::new(&mut data[512..]))).expect("valid EBPB");
 }
 
 #[test]
@@ -587,4 +592,28 @@ fn vfat_file_write1() {
 
     let bytes = [0x01, 0x02, 0x03, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x25, 0xc7, 0xec, 0x8f, 0xa2, 0x0a, 0x35];
     assert_eq!(buffer[..16], bytes);
+}
+
+#[test]
+fn vfat_file_write2() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    {
+        let mut file = vfat.open_file(file_path).unwrap();
+        assert_eq!(file.size(), 76735);
+        file.seek(SeekFrom::End(0)).unwrap();
+        file.write_all(&[1, 2, 3]).unwrap();
+        assert_eq!(file.size(), 76738);
+    }
+    let partition = vfat.into_block_device();
+    let vfat = VFat::from(partition).unwrap();
+    let mut file = vfat.open_file(file_path).unwrap();
+    assert_eq!(file.size(), 76738);
+    file.seek(SeekFrom::End(5)).unwrap();
+
+    let mut buffer = [0; 5];
+    file.read_exact(&mut buffer).unwrap();
+
+    let bytes = [0x00, 0x00, 0x01, 0x02, 0x03];
+    assert_eq!(buffer, bytes);
 }

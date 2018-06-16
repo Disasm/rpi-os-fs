@@ -31,7 +31,7 @@ impl<T: BlockDevice> BlockDevice for Partition<T> {
         self.source.sector_size()
     }
 
-    fn read_sector(&mut self, n: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+    fn read_sector(&self, n: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
         let m = self.to_source_sector(n)?;
         self.source.read_sector(m, buf)
     }

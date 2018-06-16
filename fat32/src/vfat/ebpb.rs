@@ -48,7 +48,7 @@ impl BiosParameterBlock {
     ///
     /// If the EBPB signature is invalid, returns an error of `BadSignature`.
     pub fn read_from<T: BlockDevice>(
-        device: &mut T
+        device: &T
     ) -> Result<BiosParameterBlock, Error> {
         let mut buf = [0; 512];
         device.read_sector(0, &mut buf).map_err(|e| Error::Io(e))?;

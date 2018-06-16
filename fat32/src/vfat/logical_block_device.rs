@@ -23,7 +23,7 @@ impl BlockDevice for LogicalBlockDevice {
         self.logical_sector_size
     }
 
-    fn read_sector(&mut self, sector: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
         let size = min(buf.len(), self.sector_size() as usize);
         let buf2 = &mut buf[..size];
         let source_offset = sector * self.sector_size();
