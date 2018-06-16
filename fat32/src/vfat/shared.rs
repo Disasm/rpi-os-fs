@@ -59,6 +59,11 @@ impl<T> Shared<T> {
     pub fn borrow_mut<'a>(&'a self) -> impl DerefMut<Target = T> + 'a {
         self.0.lock().expect("all okay")
     }
+
+    #[cfg(not(target_os = "ros"))]
+    pub fn unwrap(self) -> T {
+        ::std::sync::Arc::try_unwrap(self.0).map_err(|_|()).unwrap().into_inner().unwrap()
+    }
 }
 
 impl<T> Clone for Shared<T> {

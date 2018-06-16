@@ -9,9 +9,10 @@ use vfat::logical_block_device::LogicalBlockDevice;
 use std::mem;
 use std::path::Component;
 use vfat::Entry;
+use std::borrow::BorrowMut;
 
 pub struct VFat {
-    pub(crate) device: Box<BlockDevice>,
+    pub(crate) device: LogicalBlockDevice,
     pub(crate) bytes_per_sector: u16,
     pub(crate) sectors_per_cluster: u8,
     pub(crate) sectors_per_fat: u32,
@@ -21,12 +22,12 @@ pub struct VFat {
 }
 
 impl VFat {
-    pub fn from<T: BlockDevice + 'static>(mut device: T) -> Result<Shared<VFat>, Error>
+    pub fn from(mut device: Box<BlockDevice>) -> Result<Shared<VFat>, Error>
     {
         let ebpb = BiosParameterBlock::read_from(&mut device)?;
         let logical_block_device = LogicalBlockDevice::new(device, ebpb.bytes_per_logical_sector as u64);
         let vfat = VFat {
-            device: Box::new(logical_block_device),
+            device: logical_block_device,
             bytes_per_sector: ebpb.bytes_per_logical_sector,
             sectors_per_cluster: ebpb.logical_sectors_per_cluster,
             sectors_per_fat: ebpb.logical_sectors_per_fat,
@@ -109,6 +110,10 @@ impl Shared<VFat> {
 
     pub fn root(&self) -> vfat::Dir {
         vfat::FileSystemObject::root(self.clone()).into_dir().unwrap()
+    }
+
+    pub fn into_block_device(self) -> Box<BlockDevice> {
+        self.unwrap().device.source
     }
 }
 

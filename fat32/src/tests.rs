@@ -9,6 +9,7 @@ use mbr::{MasterBootRecord, CHS, PartitionEntry, get_partition};
 use traits::*;
 use fallible_iterator::FallibleIterator;
 use chrono::{Datelike, Timelike};
+use std::io::SeekFrom;
 
 mod mock {
     use std::io::{Read, Write, Seek, Result, SeekFrom};
@@ -50,17 +51,27 @@ macro assert_matches($e:expr, $variant:pat $(if $($cond:tt)*)*) {
     }
 }
 
-fn resource(name: &str) -> ::std::fs::File {
+fn load_disk_image_part(name: &str) -> ::std::io::Cursor<Vec<u8>> {
     let path = format!("{}/../files/resources/{}", env!("CARGO_MANIFEST_DIR"), name);
-    match ::std::fs::File::open(path) {
+    let mut file = match ::std::fs::File::open(path) {
         Ok(file) => file,
         Err(e) => {
             eprintln!("\nfailed to find assignment 2 resource '{}': {}\n\
                        => perhaps you need to run 'make fetch'?", name, e);
             panic!("missing resource");
         }
-    }
+    };
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).unwrap();
+    Cursor::new(buf)
 }
+
+fn load_partition(name: &str) -> impl BlockDevice {
+    get_partition(load_disk_image_part(name), 0).expect("get_partition failed")
+}
+
+
+
 
 fn assert_hash_eq(name: &str, actual: &str, expected: &str) {
     let actual = actual.trim();
@@ -77,15 +88,19 @@ fn assert_hash_eq(name: &str, actual: &str, expected: &str) {
 }
 
 fn hash_for(name: &str) -> String {
-    let mut file = resource(&format!("hashes/{}", name));
+    let mut file = load_disk_image_part(&format!("hashes/{}", name));
     let mut string = String::new();
     file.read_to_string(&mut string).expect("read hash to string");
     string
 }
 
 fn vfat_from_resource(name: &str) -> Shared<VFat> {
-    VFat::from(get_partition(resource(name), 0).expect("get_partition failed")).expect("failed to initialize VFAT from image")
+    VFat::from(Box::new(load_partition(name))).expect("failed to initialize VFAT from image")
 }
+
+//fn vfat_from_block_device<T: BlockDevice + 'static>(block_device: T) -> Shared<VFat> {
+//    VFat::from(get_partition(block_device, 0).expect("get_partition failed")).expect("failed to initialize VFAT from image")
+//}
 
 #[test]
 fn check_mbr_size() {
@@ -122,7 +137,7 @@ fn check_mbr_boot_indicator() {
 
 #[test]
 fn test_mbr() {
-    let mut mbr = resource("mbr.img");
+    let mut mbr = load_disk_image_part("mbr.img");
     let mut data = [0u8; 512];
     mbr.read_exact(&mut data).expect("read resource data");
     let mbr = MasterBootRecord::read_from(&mut Cursor::new(&mut data[..])).expect("valid MBR");
@@ -153,8 +168,8 @@ fn check_ebpb_signature() {
 
 #[test]
 fn test_ebpb() {
-    let mut ebpb1 = resource("ebpb1.img");
-    let mut ebpb2 = resource("ebpb2.img");
+    let mut ebpb1 = load_disk_image_part("ebpb1.img");
+    let mut ebpb2 = load_disk_image_part("ebpb2.img");
 
     let mut data = [0u8; 1024];
     ebpb1.read_exact(&mut data[..512]).expect("read resource data");
@@ -389,7 +404,7 @@ fn shared_fs_is_sync_send_static() {
 
 #[test]
 fn mbr_get_partition() {
-    let mut device = get_partition(resource("mock1.fat32.img"), 0).unwrap();
+    let mut device = load_partition("mock1.fat32.img");
 
     let mut buffer = [0; 512];
     let size = device.read_sector(0, &mut buffer).unwrap();
@@ -403,7 +418,7 @@ fn mbr_get_partition() {
 
 #[test]
 fn block_device_read_by_offset() {
-    let mut device = get_partition(resource("mock1.fat32.img"), 0).unwrap();
+    let mut device = load_partition("mock1.fat32.img");
 
     let mut buffer = [0; 16];
     device.read_by_offset(0, &mut buffer).unwrap();
@@ -548,4 +563,24 @@ fn vfat_cluster_chain5() {
 
     let bytes = [0x38, 0x20, 0x30, 0x20, 0x52, 0x20, 0x31, 0x36, 0x30, 0x20, 0x30, 0x20, 0x52, 0x20, 0x31, 0x36];
     assert_eq!(buffer[512..512+16], bytes);
+}
+
+#[test]
+fn vfat_file_write1() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    {
+        let mut file = vfat.open_file(file_path).unwrap();
+        //file.seek(SeekFrom::End(0)).unwrap();
+        file.write_all(&[1, 2, 3]).unwrap();
+    }
+    let partition = vfat.into_block_device();
+    let vfat = VFat::from(partition).unwrap();
+    let mut file = vfat.open_file(file_path).unwrap();
+
+    let mut buffer = [0; 512];
+    file.read_exact(&mut buffer).unwrap();
+
+    let bytes = [0x01, 0x02, 0x03, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x25, 0xc7, 0xec, 0x8f, 0xa2, 0x0a, 0x35];
+    assert_eq!(buffer[..16], bytes);
 }

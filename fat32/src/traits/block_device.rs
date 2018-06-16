@@ -1,8 +1,8 @@
 use std::io;
 use std::cmp::min;
 use std::ops::Range;
-
-
+use std::io::Error;
+use std::ops::{Deref, DerefMut};
 struct IOOperationChunk {
     sector: u64,
     buf_offset: usize,
@@ -166,3 +166,17 @@ pub trait BlockDevice: Send {
         (*self).write_sector(n, buf)
     }
 }*/
+
+impl BlockDevice for Box<BlockDevice> {
+    fn sector_size(&self) -> u64 {
+        self.deref().sector_size()
+    }
+
+    fn read_sector(&mut self, sector: u64, buf: &mut [u8]) -> Result<usize, Error> {
+        self.deref_mut().read_sector(sector, buf)
+    }
+
+    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> Result<usize, Error> {
+        self.deref_mut().write_sector(sector, buf)
+    }
+}

@@ -2,13 +2,13 @@ use traits::BlockDevice;
 use std::io;
 use std::cmp::min;
 
-pub struct LogicalBlockDevice<T: BlockDevice> {
-    source: T,
+pub struct LogicalBlockDevice {
+    pub(crate) source: Box<BlockDevice>,
     logical_sector_size: u64,
 }
 
-impl<T: BlockDevice> LogicalBlockDevice<T> {
-    pub fn new(source: T, logical_sector_size: u64) -> Self {
+impl LogicalBlockDevice {
+    pub fn new(source: Box<BlockDevice>, logical_sector_size: u64) -> Self {
         assert!(logical_sector_size >= source.sector_size());
         assert_eq!(logical_sector_size % source.sector_size(), 0);
 
@@ -18,7 +18,7 @@ impl<T: BlockDevice> LogicalBlockDevice<T> {
     }
 }
 
-impl<T: BlockDevice> BlockDevice for LogicalBlockDevice<T> {
+impl BlockDevice for LogicalBlockDevice {
     fn sector_size(&self) -> u64 {
         self.logical_sector_size
     }
