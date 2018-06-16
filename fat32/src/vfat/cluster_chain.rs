@@ -3,6 +3,7 @@ use std::io::{self, SeekFrom};
 
 use vfat::{VFat, Shared};
 use vfat::Status;
+use traits::BlockDevice;
 
 pub struct ClusterChain {
     vfat: Shared<VFat>,
@@ -107,11 +108,29 @@ impl io::Read for ClusterChain {
 
 impl io::Write for ClusterChain {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unimplemented!()
+        let mut total_write_size = 0;
+        loop {
+            if self.current_cluster.is_none() {
+                unimplemented!();
+                break;
+            }
+            let buf_tail = &buf[total_write_size..];
+
+            let cluster_offset = self.position % self.cluster_size_bytes as u64;
+            let write_size = min(self.cluster_size_bytes as u64 - cluster_offset, buf_tail.len() as u64);
+            if write_size == 0 {
+                break;
+            }
+            self.vfat.borrow_mut().write_cluster(self.current_cluster.unwrap(), cluster_offset as u32,
+                                                &buf_tail[..write_size as usize])?;
+            self.advance(write_size)?;
+            total_write_size += write_size as usize;
+        }
+        Ok(total_write_size)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        unimplemented!()
+        self.vfat.borrow_mut().device.sync()
     }
 }
 

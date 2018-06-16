@@ -43,25 +43,29 @@ impl VFat {
         self.sectors_per_cluster as u32 * self.bytes_per_sector as u32
     }
 
-    //
-    //  * A method to read from an offset of a cluster into a buffer.
-    //
-    pub(crate) fn read_cluster(
-        &mut self,
-        cluster: u32,
-        offset: u32,
-        buf: &mut [u8]
-    ) -> io::Result<()> {
+    fn get_full_offset(&self, cluster: u32, offset: u32, buf_len: usize) -> io::Result<u64> {
         if cluster < 2 {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
-        if (offset + buf.len() as u32) > self.cluster_size_bytes() {
+        if (offset + buf_len as u32) > self.cluster_size_bytes() {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
 
         let cluster_sector = self.data_start_sector + (cluster as u64 - 2) * self.sectors_per_cluster as u64;
-        let full_offset = cluster_sector * self.bytes_per_sector as u64 + offset as u64;
+        Ok(cluster_sector * self.bytes_per_sector as u64 + offset as u64)
+    }
+
+    //
+    //  * A method to read from an offset of a cluster into a buffer.
+    //
+    pub(crate) fn read_cluster(&mut self, cluster: u32, offset: u32, buf: &mut [u8]) -> io::Result<()> {
+        let full_offset = self.get_full_offset(cluster, offset, buf.len())?;
         self.device.read_by_offset(full_offset, buf)
+    }
+
+    pub(crate) fn write_cluster(&mut self, cluster: u32, offset: u32, buf: &[u8]) -> io::Result<()> {
+        let full_offset = self.get_full_offset(cluster, offset, buf.len())?;
+        self.device.write_by_offset(full_offset, buf)
     }
 
 

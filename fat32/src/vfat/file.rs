@@ -35,11 +35,11 @@ impl io::Read for File {
 
 impl io::Write for File {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        unimplemented!()
+        self.chain.write(buf)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        unimplemented!()
+        self.chain.flush()
     }
 }
 
