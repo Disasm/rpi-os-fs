@@ -8,13 +8,17 @@ use vfat::cluster_chain::ClusterChain;
 pub struct File {
     chain: ClusterChain,
     size: u32,
+    dir_start_cluster: u32,
+    regular_entry_index: u64,
 }
 
 impl File {
-    pub fn open(vfat: Shared<VFat>, start_cluster: u32, size: u32) -> File {
+    pub fn open(vfat: Shared<VFat>, start_cluster: u32, size: u32, dir_start_cluster: u32, regular_entry_index: u64) -> File {
         File {
             chain: ClusterChain::open(vfat, start_cluster),
             size,
+            dir_start_cluster,
+            regular_entry_index,
         }
     }
 
@@ -35,7 +39,15 @@ impl io::Read for File {
 
 impl io::Write for File {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.chain.write(buf)
+        let write_size = self.chain.write(buf)?;
+
+        if self.chain.position > self.size as u64 {
+            if self.chain.position > ::std::u32::MAX as u64 {
+                return Err(io::Error::new(io::ErrorKind::Other, "File is too fat for FAT32"));
+            }
+            self.size = self.chain.position as u32;
+        }
+        Ok(write_size)
     }
 
     fn flush(&mut self) -> io::Result<()> {

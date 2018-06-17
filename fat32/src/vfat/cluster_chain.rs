@@ -105,8 +105,9 @@ impl io::Write for ClusterChain {
         let mut total_write_size = 0;
         loop {
             if self.current_cluster.is_none() {
-                unimplemented!();
-                break;
+                let fat = self.vfat.borrow().fat();
+                let new_cluster = fat.borrow_mut().alloc_for_chain(self.previous_cluster.unwrap())?;
+                self.current_cluster = Some(new_cluster);
             }
             let buf_tail = &buf[total_write_size..];
 
