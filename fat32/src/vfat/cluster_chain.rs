@@ -54,7 +54,8 @@ impl ClusterChain {
                 self.position = final_pos;
                 break;
             }
-            let next_cluster = self.vfat.borrow_mut().fat().get_next_in_chain(self.current_cluster.unwrap())?;
+            let fat = self.vfat.borrow().fat();
+            let next_cluster = fat.borrow().get_next_in_chain(self.current_cluster.unwrap())?;
             self.position = next_cluster_start_pos;
             self.previous_cluster = self.current_cluster;
             self.current_cluster = next_cluster;

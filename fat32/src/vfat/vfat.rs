@@ -21,7 +21,7 @@ pub struct VFat {
     pub(crate) data_start_sector: u64,
     pub(crate) root_dir_cluster: u32,
     pub(crate) number_of_fats: u8,
-    fat: Option<Fat>,
+    fat: Option<Shared<Fat>>,
 }
 
 impl VFat {
@@ -42,7 +42,7 @@ impl VFat {
             fat: None,
         };
         let vfat = Shared::new(vfat);
-        vfat.borrow_mut().fat = Some(Fat::new(vfat.clone()));
+        vfat.borrow_mut().fat = Some(Shared::new(Fat::new(vfat.clone())));
         Ok(vfat)
     }
 
@@ -75,8 +75,8 @@ impl VFat {
         self.device.write_by_offset(full_offset, buf)
     }
 
-    pub(crate) fn fat(&mut self) -> &mut Fat {
-        self.fat.as_mut().unwrap()
+    pub(crate) fn fat(&self) -> Shared<Fat> {
+        self.fat.clone().unwrap()
     }
 }
 
@@ -91,6 +91,7 @@ impl Shared<VFat> {
     }
 
     pub fn into_block_device(self) -> Box<BlockDevice> {
+        self.borrow_mut().fat = None;
         self.unwrap().device.source
     }
 }

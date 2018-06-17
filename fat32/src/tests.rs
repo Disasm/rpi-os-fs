@@ -446,30 +446,33 @@ fn block_device_read_by_offset() {
 #[test]
 fn vfat_fields() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut vfat = vfat.borrow_mut();
-    assert_eq!(vfat.device.sector_size(), 512);
-    assert_eq!(vfat.bytes_per_sector, 512);
-    assert_eq!(vfat.sectors_per_cluster, 1);
-    assert_eq!(vfat.sectors_per_fat, 3025);
-    assert_eq!(vfat.fat_start_sector, 32);
-    assert_eq!(vfat.data_start_sector, 6082);
-    assert_eq!(vfat.root_dir_cluster, 2);
-    assert_eq!(vfat.cluster_size_bytes(), 512);
+    {
+        let mut vfat = vfat.borrow_mut();
+        assert_eq!(vfat.device.sector_size(), 512);
+        assert_eq!(vfat.bytes_per_sector, 512);
+        assert_eq!(vfat.sectors_per_cluster, 1);
+        assert_eq!(vfat.sectors_per_fat, 3025);
+        assert_eq!(vfat.fat_start_sector, 32);
+        assert_eq!(vfat.data_start_sector, 6082);
+        assert_eq!(vfat.root_dir_cluster, 2);
+        assert_eq!(vfat.cluster_size_bytes(), 512);
 
-    let mut buffer = [0; 16];
-    vfat.read_cluster(2, 0, &mut buffer).unwrap();
-    let first16 = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
-    assert_eq!(buffer, first16);
+        let mut buffer = [0; 16];
+        vfat.read_cluster(2, 0, &mut buffer).unwrap();
+        let first16 = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
+        assert_eq!(buffer, first16);
 
-    vfat.read_cluster(3, 0x11, &mut buffer).unwrap();
-    let bytes = [0x4c, 0x5a, 0x4c, 0x00, 0x00, 0x4e, 0x01, 0x5a, 0x4c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2e];
-    assert_eq!(buffer, bytes);
+        vfat.read_cluster(3, 0x11, &mut buffer).unwrap();
+        let bytes = [0x4c, 0x5a, 0x4c, 0x00, 0x00, 0x4e, 0x01, 0x5a, 0x4c, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2e];
+        assert_eq!(buffer, bytes);
+    }
 
-    let entry = vfat.fat_entry(2).unwrap();
-    assert_eq!(entry.status(), ::vfat::fat::Status::Eoc(0xFFFFFFF));
+    let fat = vfat.borrow().fat();
+    let entry = fat.borrow().get_next_in_chain(2).unwrap();
+    assert_eq!(entry, None);
 
-    let entry = vfat.fat_entry(5).unwrap();
-    assert_eq!(entry.status(), ::vfat::fat::Status::Data(6));
+    let entry = fat.borrow().get_next_in_chain(5).unwrap();
+    assert_eq!(entry, Some(6));
 }
 
 #[test]
