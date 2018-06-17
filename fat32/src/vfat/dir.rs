@@ -10,6 +10,7 @@ use traits::{Date, Time, DateTime};
 use vfat::metadata::Metadata;
 use vfat::metadata::Attributes;
 use vfat::cluster_chain::ClusterChain;
+use fallible_iterator::Enumerate;
 
 //#[derive(Debug)]
 pub struct Dir {
@@ -102,6 +103,10 @@ impl Dir {
             Err(io::Error::from(io::ErrorKind::NotFound))
         }
     }
+
+    pub fn modify_file_size(&mut self, raw_entry_index: u64) -> io::Result<()> {
+        unimplemented!()
+    }
 }
 
 struct RawDirIterator {
@@ -127,7 +132,10 @@ impl FallibleIterator for RawDirIterator {
     }
 }
 
-pub struct DirIterator(RawDirIterator);
+pub struct DirIterator {
+    raw_iterator: Enumerate<RawDirIterator>,
+    dir_start_cluster: u32,
+}
 
 fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
     let data = if let Some(index) = bytes.iter().position(|x| *x == 0x00 || *x == 0x20) {
@@ -162,8 +170,8 @@ impl FallibleIterator for DirIterator {
     type Error = io::Error;
 
     fn next(&mut self) -> io::Result<Option<Entry>> {
-        if let Some(entry) = self.0.find(|entry| entry.is_valid())? {
-            let (long_name, regular_entry) = if entry.is_lfn() {
+        if let Some((raw_index, entry)) = self.raw_iterator.find(|&(_, ref entry)| entry.is_valid())? {
+            let (long_name, regular_entry, regular_entry_index) = if entry.is_lfn() {
                 let lfn_entry = unsafe { entry.long_filename };
                 if lfn_entry.sequence_number & 0x40 == 0 {
                     return Err(io::Error::new(io::ErrorKind::InvalidData, "invalid sequence number for the first LFN entry"));
@@ -172,7 +180,7 @@ impl FallibleIterator for DirIterator {
 
                 let mut entries = vec![lfn_entry];
                 for i in 1..lfn_entries_count {
-                    if let Some(entry) = self.0.next()? {
+                    if let Some((_, entry)) = self.raw_iterator.next()? {
                         if entry.is_lfn() {
                             let lfn_entry = unsafe { entry.long_filename };
                             let lfn_entry_index = lfn_entry.sequence_number & 0x1F;
@@ -199,14 +207,14 @@ impl FallibleIterator for DirIterator {
                 }
                 let long_name = String::from_utf16(&filename_buf).ok();
 
-                let next_entry = self.0.next()?.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "can't find regular entry after long entry"))?;
+                let (next_entry_index, next_entry) = self.raw_iterator.next()?.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "can't find regular entry after long entry"))?;
                 if !next_entry.is_regular() {
                     return Err(io::Error::new(io::ErrorKind::InvalidData, "next entry is not regular"));
                 }
-                (long_name, next_entry)
+                (long_name, next_entry, next_entry_index)
             } else {
                 assert!(entry.is_regular());
-                (None, entry)
+                (None, entry, raw_index)
             };
 
             let regular_entry = unsafe { regular_entry.regular };
@@ -236,6 +244,8 @@ impl FallibleIterator for DirIterator {
             let entry = Entry {
                 name: file_name,
                 metadata,
+                dir_start_cluster: self.dir_start_cluster,
+                regular_entry_index: regular_entry_index as u64,
             };
             Ok(Some(entry))
         } else {
@@ -253,6 +263,9 @@ impl traits::Dir for Dir {
         let raw_iterator = RawDirIterator {
             chain: ClusterChain::open(self.vfat.clone(), self.start_cluster)
         };
-        Ok(DirIterator(raw_iterator))
+        Ok(DirIterator {
+            raw_iterator: raw_iterator.enumerate(),
+            dir_start_cluster: self.start_cluster,
+        })
     }
 }
