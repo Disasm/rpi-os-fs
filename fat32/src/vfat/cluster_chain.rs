@@ -54,14 +54,7 @@ impl ClusterChain {
                 self.position = final_pos;
                 break;
             }
-            let fat_entry = self.vfat.borrow_mut().fat_entry(self.current_cluster.unwrap())?;
-            let next_cluster = match fat_entry.status() {
-                Status::Data(new_cluster) => Some(new_cluster),
-                Status::Eoc(_) => None,
-                _ => {
-                    return Err(io::Error::from(io::ErrorKind::InvalidData));
-                }
-            };
+            let next_cluster = self.vfat.borrow_mut().fat().get_next_in_chain(self.current_cluster.unwrap())?;
             self.position = next_cluster_start_pos;
             self.previous_cluster = self.current_cluster;
             self.current_cluster = next_cluster;

@@ -2,6 +2,8 @@ use std::fmt;
 use vfat::Shared;
 use vfat::VFat;
 use std::io;
+use std::mem::size_of;
+use traits::BlockDevice;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Status {
@@ -51,22 +53,48 @@ impl fmt::Debug for FatEntry {
 
 struct SingleFat {
     vfat: Shared<VFat>,
-    bytes_per_sector: u16,
-    sectors_per_fat: u32,
-    fat_start_sector: u64,
+    offset: u64,
+    size: u32,
 }
 
 impl SingleFat {
+    const FAT_ENTRY_SIZE: u64 = 4;
+
+    fn new(vfat: Shared<VFat>, index: u8) -> SingleFat {
+        let (offset, size) = {
+            let vfat = vfat.borrow();
+
+            let fat_size_bytes = vfat.sectors_per_fat as u64 * vfat.bytes_per_sector as u64;
+            let size = (fat_size_bytes / Self::FAT_ENTRY_SIZE) as u32;
+            let first_fat_offset = vfat.fat_start_sector as u64 * vfat.bytes_per_sector as u64;
+            let offset = first_fat_offset + index as u64 * fat_size_bytes;
+            (offset, size)
+        };
+        Self {
+            offset, size, vfat,
+        }
+    }
+
     fn get(&self, cluster: u32) -> io::Result<FatEntry> {
-        unimplemented!()
+        if cluster >= self.size {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        let mut buf = [0; 4];
+        self.vfat.borrow().device.read_by_offset(self.offset + cluster as u64 * Self::FAT_ENTRY_SIZE, &mut buf)?;
+        let entry: u32 = unsafe { ::std::mem::transmute(buf) };
+        Ok(FatEntry(entry))
     }
 
     fn set(&mut self, cluster: u32, entry: u32) -> io::Result<()> {
-        unimplemented!()
+        if cluster >= self.size {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
+        let buf: [u8; 4] = unsafe { ::std::mem::transmute(entry) };
+        self.vfat.borrow_mut().device.write_by_offset(self.offset + cluster as u64 * Self::FAT_ENTRY_SIZE, &buf)
     }
 
     fn size(&self) -> u32 {
-        unimplemented!()
+        self.size
     }
 }
 
@@ -75,11 +103,14 @@ pub struct Fat {
 }
 
 impl Fat {
-    pub(crate) fn new(vfat: Shared<VFat>) {
-        unimplemented!()
+    pub(crate) fn new(vfat: Shared<VFat>) -> Self {
+        let number_of_fats = vfat.borrow().number_of_fats;
+        Fat {
+            fats: (0..number_of_fats).map(|i| SingleFat::new(vfat.clone(), i)).collect(),
+        }
     }
 
-    pub fn get(&self, cluster: u32) -> io::Result<FatEntry> {
+    fn get(&self, cluster: u32) -> io::Result<FatEntry> {
         self.fats[0].get(cluster)
     }
 
@@ -108,10 +139,18 @@ impl Fat {
         self.alloc(0xFFFFFFF)
     }
 
-    pub fn append_to_chain(&mut self, last_cluster: u32) -> io::Result<u32> {
+    pub fn alloc_for_chain(&mut self, last_cluster: u32) -> io::Result<u32> {
         let new_last_cluster = self.alloc(0xFFFFFFF)?;
         self.set(last_cluster, new_last_cluster)?;
         Ok(new_last_cluster)
+    }
+
+    pub fn get_next_in_chain(&self, cluster: u32) -> io::Result<Option<u32>> {
+        match self.get(cluster)?.status() {
+            Status::Data(next) => Ok(Some(next)),
+            Status::Eoc(_) => Ok(None),
+            _ => Err(io::Error::from(io::ErrorKind::InvalidData))
+        }
     }
 
     pub fn free_chain(&mut self, first_cluster: u32) -> io::Result<()> {

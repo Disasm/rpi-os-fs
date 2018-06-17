@@ -10,6 +10,7 @@ use std::mem;
 use std::path::Component;
 use vfat::Entry;
 use std::borrow::BorrowMut;
+use vfat::fat::Fat;
 
 pub struct VFat {
     pub(crate) device: LogicalBlockDevice,
@@ -19,6 +20,8 @@ pub struct VFat {
     pub(crate) fat_start_sector: u64,
     pub(crate) data_start_sector: u64,
     pub(crate) root_dir_cluster: u32,
+    pub(crate) number_of_fats: u8,
+    fat: Option<Fat>,
 }
 
 impl VFat {
@@ -35,8 +38,12 @@ impl VFat {
             data_start_sector: (ebpb.reserved_logical_sectors as u64) +
                 (ebpb.number_of_fats as u64 * ebpb.logical_sectors_per_fat as u64),
             root_dir_cluster: ebpb.root_directory_cluster,
+            number_of_fats: ebpb.number_of_fats,
+            fat: None,
         };
-        Ok(Shared::new(vfat))
+        let vfat = Shared::new(vfat);
+        vfat.borrow_mut().fat = Some(Fat::new(vfat.clone()));
+        Ok(vfat)
     }
 
     pub(crate) fn cluster_size_bytes(&self) -> u32 {
@@ -68,41 +75,8 @@ impl VFat {
         self.device.write_by_offset(full_offset, buf)
     }
 
-
-
-    //
-    //  * A method to read all of the clusters chained from a starting cluster
-    //    into a vector.
-    //
-//    fn read_chain(
-//        &mut self,
-//        start_cluster: u32,
-//        buf: &mut Vec<u8>
-//    ) -> io::Result<usize> {
-//        let mut cluster_buffer = Vec::new();
-//        cluster_buffer.resize(self.sectors_per_cluster as usize * self.bytes_per_sector as usize, 0);
-//
-//        let mut current_cluster = start_cluster;
-//        loop {
-//            self.read_cluster(current_cluster, 0, &mut cluster_buffer)?;
-//            buf.extend_from_slice(&cluster_buffer);
-//        }
-//    }
-    //
-    //  * A method to return a reference to a `FatEntry` for a cluster where the
-    //    reference points directly into a cached sector.
-    //
-    pub(crate) fn fat_entry(&mut self, cluster: u32) -> io::Result<FatEntry> {
-        let max_clusters = self.sectors_per_fat * self.bytes_per_sector as u32 / size_of::<u32>() as u32;
-        if cluster >= max_clusters {
-            return Err(io::Error::from(io::ErrorKind::InvalidInput));
-        }
-        let mut offset = (cluster as u64) * size_of::<u32>() as u64;
-        offset += self.fat_start_sector * self.bytes_per_sector as u64;
-        let mut buf = [0; 4];
-        self.device.read_by_offset(offset, &mut buf)?;
-        let entry: u32 = unsafe { mem::transmute(buf) };
-        Ok(FatEntry(entry))
+    pub(crate) fn fat(&mut self) -> &mut Fat {
+        self.fat.as_mut().unwrap()
     }
 }
 
