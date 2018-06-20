@@ -10,6 +10,7 @@ pub(crate) mod shared;
 pub(crate) mod logical_block_device;
 pub(crate) mod file_system_object;
 pub(crate) mod cluster_chain;
+pub(crate) mod lock_manager;
 
 pub use self::ebpb::BiosParameterBlock;
 pub use self::file::File;
