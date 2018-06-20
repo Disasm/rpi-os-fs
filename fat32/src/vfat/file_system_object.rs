@@ -38,7 +38,7 @@ impl traits::FileSystemObject for FileSystemObject {
 
     fn into_file(self) -> Option<File> {
         if !self.is_dir {
-            Some(File::open(self.vfat, self.first_cluster, self.size, unimplemented!(), unimplemented!()))
+            Some(File::open(self.vfat, self.first_cluster, self.size))
         } else {
             None
         }

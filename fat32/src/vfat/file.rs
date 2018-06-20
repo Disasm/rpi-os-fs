@@ -13,12 +13,12 @@ pub struct File {
 }
 
 impl File {
-    pub fn open(vfat: Shared<VFat>, start_cluster: u32, size: u32, dir_start_cluster: u32, regular_entry_index: u64) -> File {
+    pub fn open(vfat: Shared<VFat>, start_cluster: u32, size: u32) -> File {
         File {
             chain: ClusterChain::open(vfat, start_cluster),
             size,
-            dir_start_cluster,
-            regular_entry_index,
+            dir_start_cluster: unimplemented!(),
+            regular_entry_index: unimplemented!(),
         }
     }
 
