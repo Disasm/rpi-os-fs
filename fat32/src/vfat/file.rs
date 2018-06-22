@@ -4,21 +4,21 @@ use std::io::{self, SeekFrom};
 use vfat::{VFatFileSystem, Shared};
 use vfat::cluster_chain::ClusterChain;
 use traits::File;
+use vfat::VFatEntry;
 
 pub struct VFatFile {
     chain: ClusterChain,
     size: u32,
-    dir_start_cluster: u32,
-    regular_entry_index: u64,
+    entry: VFatEntry,
 }
 
 impl VFatFile {
-    pub fn open(vfat: Shared<VFatFileSystem>, start_cluster: u32, size: u32) -> VFatFile {
+    pub fn from_entry(entry: &VFatEntry) -> VFatFile {
+        let vfat = entry.vfat();
         VFatFile {
-            chain: ClusterChain::open(vfat, start_cluster),
-            size,
-            dir_start_cluster: unimplemented!(),
-            regular_entry_index: unimplemented!(),
+            chain: ClusterChain::open(vfat, entry.metadata.first_cluster),
+            size: entry.metadata.size,
+            entry: entry.clone(),
         }
     }
 

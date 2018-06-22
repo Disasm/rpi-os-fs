@@ -1,4 +1,4 @@
-use traits::{self, Date, DateTime};
+use traits::{Date, DateTime, Metadata};
 
 /// File attributes as represented in FAT32 on-disk structures.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
@@ -20,7 +20,7 @@ impl Attributes {
 
 /// Metadata for a directory entry.
 #[derive(Debug, Clone)]
-pub struct Metadata {
+pub struct VFatMetadata {
     pub(crate) attributes: Attributes,
     pub(crate) created: DateTime,
     pub(crate) accessed: Date,
@@ -29,7 +29,7 @@ pub struct Metadata {
     pub(crate) size: u32,
 }
 
-impl traits::Metadata for Metadata {
+impl Metadata for VFatMetadata {
     fn is_dir(&self) -> bool {
         self.attributes.is_dir()
     }

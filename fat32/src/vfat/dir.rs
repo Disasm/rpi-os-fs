@@ -6,15 +6,30 @@ use std::mem;
 use std::io::Read;
 use fallible_iterator::FallibleIterator;
 use traits::{Dir, Date, Time, DateTime};
-use vfat::metadata::Metadata;
+use vfat::metadata::VFatMetadata;
 use vfat::metadata::Attributes;
 use vfat::cluster_chain::ClusterChain;
 use fallible_iterator::Enumerate;
+use vfat::lock_manager::LockMode;
+use vfat::lock_manager::FSObjectGuard;
+use std::ops::Deref;
 
-//#[derive(Debug)]
 pub struct VFatDir {
-    vfat: Shared<VFatFileSystem>,
+    pub(crate) vfat: Shared<VFatFileSystem>,
     start_cluster: u32,
+    ref_guard: FSObjectGuard,
+    parent_dir: Option<Box<VFatDir>>,
+}
+
+impl Clone for VFatDir {
+    fn clone(&self) -> Self {
+        Self {
+            vfat: self.vfat.clone(),
+            start_cluster: self.start_cluster,
+            ref_guard: self.vfat.borrow().lock_manager().lock(self.start_cluster, LockMode::Ref),
+            parent_dir: self.parent_dir.as_ref().cloned(),
+        }
+    }
 }
 
 #[repr(C, packed)]
@@ -78,12 +93,29 @@ impl VFatDirEntry {
 }
 
 impl VFatDir {
-    pub fn open(vfat: Shared<VFatFileSystem>, start_cluster: u32) -> VFatDir {
+    pub fn from_entry(entry: &VFatEntry) -> VFatDir {
+        let vfat = entry.vfat();
+        let ref_guard = vfat.borrow().lock_manager().lock(entry.metadata.first_cluster, LockMode::Ref);
         VFatDir {
             vfat,
-            start_cluster,
+            start_cluster: entry.metadata.first_cluster,
+            ref_guard,
+            parent_dir: Some(Box::new(entry.dir.clone())),
         }
     }
+
+    pub fn root(vfat: Shared<VFatFileSystem>) -> VFatDir {
+        let vfat_clone = vfat.clone();
+        let vfat = vfat.borrow();
+        let ref_guard = vfat.lock_manager().lock(vfat.root_dir_cluster, LockMode::Ref);
+        VFatDir {
+            vfat: vfat_clone,
+            start_cluster: vfat.root_dir_cluster,
+            ref_guard,
+            parent_dir: None
+        }
+    }
+
     /// Finds the entry named `name` in `self` and returns it. Comparison is
     /// case-sensitive.
     ///
@@ -103,7 +135,7 @@ impl VFatDir {
         }
     }
 
-    pub fn modify_file_size(&mut self, raw_entry_index: u64) -> io::Result<()> {
+    pub fn set_file_size(&mut self, raw_entry_index: u64, size: u32) -> io::Result<()> {
         unimplemented!()
     }
 }
@@ -133,7 +165,7 @@ impl FallibleIterator for RawDirIterator {
 
 pub struct DirIterator {
     raw_iterator: Enumerate<RawDirIterator>,
-    dir_start_cluster: u32,
+    dir: VFatDir,
 }
 
 fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
@@ -232,7 +264,7 @@ impl FallibleIterator for DirIterator {
                 }
             };
 
-            let metadata = Metadata {
+            let metadata = VFatMetadata {
                 attributes: Attributes(regular_entry.attributes),
                 created: DateTime::new(decode_date(regular_entry.created_date)?, decode_time(regular_entry.created_time)?),
                 accessed: decode_date(regular_entry.accessed_date)?,
@@ -240,11 +272,13 @@ impl FallibleIterator for DirIterator {
                 first_cluster: ((regular_entry.cluster_high as u32) << 16) | (regular_entry.cluster_low as u32),
                 size: regular_entry.size,
             };
+            let ref_guard = self.dir.vfat.borrow().lock_manager().lock(metadata.first_cluster, LockMode::Ref);
             let entry = VFatEntry {
                 name: file_name,
                 metadata,
-                dir_start_cluster: self.dir_start_cluster,
+                dir: self.dir.clone(),
                 regular_entry_index: regular_entry_index as u64,
+                ref_guard,
             };
             Ok(Some(entry))
         } else {
@@ -264,7 +298,7 @@ impl Dir for VFatDir {
         };
         Ok(DirIterator {
             raw_iterator: raw_iterator.enumerate(),
-            dir_start_cluster: self.start_cluster,
+            dir: self.clone(),
         })
     }
 }

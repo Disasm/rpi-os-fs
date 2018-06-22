@@ -3,7 +3,7 @@ use std::path::Path;
 
 use vfat::{Shared, VFatFile, VFatDir, Error};
 use vfat::{self, BiosParameterBlock};
-use traits::{FileSystem, BlockDevice, FileSystemObject};
+use traits::{FileSystem, BlockDevice, Entry};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::path::Component;
 use vfat::VFatEntry;
@@ -81,13 +81,7 @@ impl VFatFileSystem {
 
 
 impl Shared<VFatFileSystem> {
-    pub fn open_entry(&self, entry: &VFatEntry) -> vfat::VFatObject {
-        vfat::VFatObject::from_entry(self.clone(), entry)
-    }
 
-    pub fn root(&self) -> vfat::VFatDir {
-        vfat::VFatObject::root(self.clone()).into_dir().unwrap()
-    }
 
     pub fn into_block_device(self) -> Box<BlockDevice> {
         // TODO: unwrap fat, lock manager
@@ -95,42 +89,51 @@ impl Shared<VFatFileSystem> {
     }
 }
 
-impl<'a> FileSystem for &'a Shared<VFatFileSystem> {
+impl FileSystem for Shared<VFatFileSystem> {
     type File = VFatFile;
     type Dir = VFatDir;
-    type FileSystemObject = vfat::VFatObject;
+    type Entry = VFatEntry;
 
-    fn open<P: AsRef<Path>>(self, path: P) -> io::Result<Self::FileSystemObject> {
-        let mut parent = vfat::VFatObject::root(self.clone());
-        for component in path.as_ref().components() {
-            if component != Component::RootDir {
-                if !parent.is_dir() {
-                    return Err(io::Error::from(io::ErrorKind::NotFound));
-                }
-                let entry = parent.into_dir().unwrap().find(component)?;
-                parent = self.open_entry(&entry);
-            }
+    fn get_entry<P: AsRef<Path>>(&self, path: P) -> io::Result<Self::Entry> {
+        let path = path.as_ref();
+        if !path.is_absolute() {
+            return Err(io::Error::new(io::ErrorKind::Other, "relative paths are not supported"));
         }
-        Ok(parent)
+        unimplemented!();
+//        let mut parent = vfat::VFatObject::root(self.clone());
+//        for component in path.as_ref().components() {
+//            if component != Component::RootDir {
+//                if !parent.is_dir() {
+//                    return Err(io::Error::from(io::ErrorKind::NotFound));
+//                }
+//                let entry = parent.into_dir().unwrap().find(component)?;
+//                parent = self.open_entry(&entry);
+//            }
+//        }
+//        Ok(parent)
     }
 
-    fn create_file<P: AsRef<Path>>(self, _path: P) -> io::Result<Self::File> {
-        unimplemented!("read only file system")
+    fn root(&self) -> io::Result<VFatDir> {
+        Ok(VFatDir::root(self.clone()))
     }
 
-    fn create_dir<P>(self, _path: P, _parents: bool) -> io::Result<Self::Dir>
+    fn create_file<P: AsRef<Path>>(&self, _path: P) -> io::Result<Self::File> {
+        unimplemented!()
+    }
+
+    fn create_dir<P>(&self, _path: P, _parents: bool) -> io::Result<Self::Dir>
         where P: AsRef<Path>
     {
-        unimplemented!("read only file system")
+        unimplemented!()
     }
 
-    fn rename<P, Q>(self, _from: P, _to: Q) -> io::Result<()>
+    fn rename<P, Q>(&self, _from: P, _to: Q) -> io::Result<()>
         where P: AsRef<Path>, Q: AsRef<Path>
     {
-        unimplemented!("read only file system")
+        unimplemented!()
     }
 
-    fn remove<P: AsRef<Path>>(self, _path: P, _children: bool) -> io::Result<()> {
-        unimplemented!("read only file system")
+    fn remove<P: AsRef<Path>>(&self, _path: P, _children: bool) -> io::Result<()> {
+        unimplemented!()
     }
 }
