@@ -167,31 +167,39 @@ enum LockMode {
     Delete,
 }
 
-#[test]
-fn test_basic1() {
+fn test_locks(locks: &[(LockMode, bool)]) {
     let manager = SharedLockManager::new();
-    let lock1 = manager.try_lock(42, LockMode::Read);
-    assert!(lock1.is_some());
 
-    let lock2 = manager.try_lock(42, LockMode::Read);
-    assert!(lock2.is_some());
-
-    let lock3 = manager.try_lock(42, LockMode::Write);
-    assert!(lock3.is_none());
+    let mut locks_vec = Vec::new();
+    for &(lock_mode, result) in locks {
+        let lock = manager.try_lock(42, lock_mode);
+        assert_eq!(lock.is_some(), result);
+        locks_vec.push(lock);
+    }
 }
 
 #[test]
-fn test_basic2() {
-    let manager = SharedLockManager::new();
-    let lock3 = manager.try_lock(42, LockMode::Write);
-    assert!(lock3.is_some());
-
-    let lock1 = manager.try_lock(42, LockMode::Read);
-    assert!(lock1.is_none());
-
-    let lock2 = manager.try_lock(42, LockMode::Read);
-    assert!(lock2.is_none());
-
+fn test_all_locks() {
+    use self::LockMode::*;
+    test_locks(&[(Read, true), (Read, true)]);
+    test_locks(&[(Read, true), (Write, false)]);
+    test_locks(&[(Read, true), (Ref, true)]);
+    test_locks(&[(Read, true), (Delete, false)]);
+    test_locks(&[(Write, true), (Read, false)]);
+    test_locks(&[(Write, true), (Write, false)]);
+    test_locks(&[(Write, true), (Ref, true)]);
+    test_locks(&[(Write, true), (Delete, false)]);
+    test_locks(&[(Ref, true), (Read, true)]);
+    test_locks(&[(Ref, true), (Write, true)]);
+    test_locks(&[(Ref, true), (Ref, true)]);
+    test_locks(&[(Ref, true), (Delete, false)]);
+    test_locks(&[(Delete, true), (Read, false)]);
+    test_locks(&[(Delete, true), (Write, false)]);
+    test_locks(&[(Delete, true), (Ref, false)]);
+    test_locks(&[(Delete, true), (Delete, false)]);
+    test_locks(&[(Read, true), (Read, true), (Write, false)]);
+    test_locks(&[(Write, true), (Read, false), (Read, false)]);
+    test_locks(&[(Ref, true), (Ref, true), (Write, true)]);
 }
 
 #[test]
