@@ -4,29 +4,36 @@ use std::io::{self, SeekFrom};
 use vfat::{VFatFileSystem, Shared};
 use traits::BlockDevice;
 use vfat::fat::SharedFat;
+use vfat::lock_manager::LockMode;
+use vfat::lock_manager::FSObjectGuard;
 
 pub struct ClusterChain {
     vfat: Shared<VFatFileSystem>,
     fat: SharedFat,
-    start_cluster: u32,
+    first_cluster: u32,
     cluster_size_bytes: u32,
     previous_cluster: Option<u32>,
     current_cluster: Option<u32>,
     pub(crate) position: u64,
+    guard: FSObjectGuard,
 }
 
 impl ClusterChain {
-    pub fn open(vfat: Shared<VFatFileSystem>, start_cluster: u32) -> ClusterChain {
-        let cluster_size_bytes = vfat.borrow().cluster_size_bytes();
-        let fat = vfat.borrow().fat();
-        ClusterChain {
-            fat,
-            vfat,
-            start_cluster,
-            cluster_size_bytes,
-            current_cluster: Some(start_cluster),
-            previous_cluster: None,
-            position: 0,
+    pub fn open(vfat: Shared<VFatFileSystem>, first_cluster: u32, mode: LockMode) -> Option<ClusterChain> {
+        let vfat2 = vfat.borrow();
+        if let Some(guard) = vfat2.lock_manager().try_lock(first_cluster, mode) {
+            Some(ClusterChain {
+                fat: vfat2.fat(),
+                vfat: vfat.clone(),
+                first_cluster,
+                cluster_size_bytes: vfat2.cluster_size_bytes(),
+                current_cluster: Some(first_cluster),
+                previous_cluster: None,
+                position: 0,
+                guard,
+            })
+        } else {
+            None
         }
     }
 
@@ -37,7 +44,7 @@ impl ClusterChain {
     fn rewind(&mut self) {
         self.position = 0;
         self.previous_cluster = None;
-        self.current_cluster = Some(self.start_cluster);
+        self.current_cluster = Some(self.first_cluster);
     }
 
     fn cluster_index(&self, pos: u64) -> u64 {

@@ -7,6 +7,7 @@ use vfat::VFatFile;
 use vfat::lock_manager::LockMode;
 use vfat::Shared;
 use vfat::VFatFileSystem;
+use traits::FileOpenMode;
 
 pub struct VFatEntry {
     pub(crate) name: String,
@@ -54,19 +55,19 @@ impl Entry for VFatEntry {
         &self.metadata
     }
 
-    fn open_file(&self) -> Option<VFatFile> {
+    fn open_file(&self, mode: FileOpenMode) -> io::Result<VFatFile> {
         if !self.metadata.is_dir() {
-            Some(VFatFile::from_entry(self))
+            VFatFile::from_entry(self, mode)
         } else {
-            None
+            Err(io::Error::new(io::ErrorKind::Other, "not a regular file"))
         }
     }
 
-    fn open_dir(&self) -> Option<VFatDir> {
+    fn open_dir(&self) -> io::Result<VFatDir> {
         if self.metadata.is_dir() {
-            Some(VFatDir::from_entry(self))
+            Ok(VFatDir::from_entry(self))
         } else {
-            None
+            Err(io::Error::new(io::ErrorKind::Other, "not a directory"))
         }
     }
 

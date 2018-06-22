@@ -5,6 +5,10 @@ use vfat::{VFatFileSystem, Shared};
 use vfat::cluster_chain::ClusterChain;
 use traits::File;
 use vfat::VFatEntry;
+use vfat::lock_manager::FSObjectGuard;
+use traits::FileOpenMode;
+use vfat::lock_manager::LockMode;
+
 
 pub struct VFatFile {
     chain: ClusterChain,
@@ -13,17 +17,28 @@ pub struct VFatFile {
 }
 
 impl VFatFile {
-    pub fn from_entry(entry: &VFatEntry) -> VFatFile {
+    pub fn from_entry(entry: &VFatEntry, mode: FileOpenMode) -> io::Result<VFatFile> {
         let vfat = entry.vfat();
-        VFatFile {
-            chain: ClusterChain::open(vfat, entry.metadata.first_cluster),
+        let mode = match mode {
+            FileOpenMode::Read => LockMode::Read,
+            FileOpenMode::Write => LockMode::Write,
+        };
+        let chain = ClusterChain::open(vfat, entry.metadata.first_cluster, mode)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "can't lock file"))?;
+
+        Ok(VFatFile {
+            chain,
             size: entry.metadata.size,
             entry: entry.clone(),
-        }
+        })
     }
 
     pub fn at_end(&self) -> bool {
         self.chain.position == self.size as u64
+    }
+
+    pub fn close(&self) {
+        unimplemented!()
     }
 }
 

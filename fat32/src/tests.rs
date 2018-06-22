@@ -11,6 +11,7 @@ use fallible_iterator::FallibleIterator;
 use chrono::{Datelike, Timelike};
 use std::io::SeekFrom;
 use std::cell::RefCell;
+use vfat::lock_manager::LockMode;
 
 mod mock {
     use std::io::{Read, Write, Seek, Result, SeekFrom};
@@ -361,7 +362,7 @@ fn hash_files_recursive<P: AsRef<Path>>(
         let path = path.join(entry.name());
         if entry.is_file() && !entry.name().starts_with(".BC.T") {
             use std::fmt::Write;
-            let file = entry.open_file().unwrap();
+            let file = entry.open_file(FileOpenMode::Read).unwrap();
             if file.size() < (1 << 20) {
                 write!(hash, "{}: ", path.display())?;
                 hash_file(hash, file).expect("successful hash");
@@ -506,7 +507,7 @@ fn vfat_file2() {
 #[test]
 fn vfat_cluster_chain1() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2, LockMode::Read).unwrap();
 
     let mut buffer = [0; 512];
     chain.read_exact(&mut buffer).unwrap();
@@ -519,7 +520,7 @@ fn vfat_cluster_chain1() {
 #[test]
 fn vfat_cluster_chain2() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2, LockMode::Read).unwrap();
 
     let mut buffer = [0; 256];
     chain.read_exact(&mut buffer).unwrap();
@@ -536,7 +537,7 @@ fn vfat_cluster_chain2() {
 #[test]
 fn vfat_cluster_chain3() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2, LockMode::Read).unwrap();
 
     let mut buffer = [0; 500];
     chain.read_exact(&mut buffer).unwrap();
@@ -553,7 +554,7 @@ fn vfat_cluster_chain3() {
 #[test]
 fn vfat_cluster_chain4() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2);
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 2, LockMode::Read).unwrap();
 
     let mut buffer = [0; 500];
     chain.read_exact(&mut buffer).unwrap();
@@ -565,7 +566,7 @@ fn vfat_cluster_chain4() {
 #[test]
 fn vfat_cluster_chain5() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 5);
+    let mut chain = ::vfat::cluster_chain::ClusterChain::open(vfat, 5, LockMode::Read).unwrap();
 
     let mut buffer = [0; 600];
     chain.read_exact(&mut buffer).unwrap();
@@ -582,13 +583,13 @@ fn vfat_file_write1() {
     let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
     let vfat = vfat_from_resource("mock1.fat32.img");
     {
-        let mut file = vfat.open_file(file_path).unwrap();
+        let mut file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
         //file.seek(SeekFrom::End(0)).unwrap();
         file.write_all(&[1, 2, 3]).unwrap();
     }
     let partition = vfat.into_block_device();
     let vfat = VFatFileSystem::from(partition).unwrap();
-    let mut file = vfat.open_file(file_path).unwrap();
+    let mut file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
 
     let mut buffer = [0; 512];
     file.read_exact(&mut buffer).unwrap();
@@ -602,7 +603,7 @@ fn vfat_file_write2() {
     let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
     let vfat = vfat_from_resource("mock1.fat32.img");
     {
-        let mut file = vfat.open_file(file_path).unwrap();
+        let mut file = vfat.open_file(file_path, FileOpenMode::Write).unwrap();
         assert_eq!(file.size(), 76735);
         file.seek(SeekFrom::End(0)).unwrap();
         file.write_all(&[1, 2, 3]).unwrap();
@@ -610,7 +611,7 @@ fn vfat_file_write2() {
     }
     let partition = vfat.into_block_device();
     let vfat = VFatFileSystem::from(partition).unwrap();
-    let mut file = vfat.open_file(file_path).unwrap();
+    let mut file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
     assert_eq!(file.size(), 76738);
     file.seek(SeekFrom::End(5)).unwrap();
 

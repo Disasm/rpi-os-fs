@@ -16,7 +16,7 @@ use std::ops::Deref;
 
 pub struct VFatDir {
     pub(crate) vfat: Shared<VFatFileSystem>,
-    start_cluster: u32,
+    first_cluster: u32,
     ref_guard: FSObjectGuard,
     parent_dir: Option<Box<VFatDir>>,
 }
@@ -25,8 +25,8 @@ impl Clone for VFatDir {
     fn clone(&self) -> Self {
         Self {
             vfat: self.vfat.clone(),
-            start_cluster: self.start_cluster,
-            ref_guard: self.vfat.borrow().lock_manager().lock(self.start_cluster, LockMode::Ref),
+            first_cluster: self.first_cluster,
+            ref_guard: self.vfat.borrow().lock_manager().lock(self.first_cluster, LockMode::Ref),
             parent_dir: self.parent_dir.as_ref().cloned(),
         }
     }
@@ -98,7 +98,7 @@ impl VFatDir {
         let ref_guard = vfat.borrow().lock_manager().lock(entry.metadata.first_cluster, LockMode::Ref);
         VFatDir {
             vfat,
-            start_cluster: entry.metadata.first_cluster,
+            first_cluster: entry.metadata.first_cluster,
             ref_guard,
             parent_dir: Some(Box::new(entry.dir.clone())),
         }
@@ -110,7 +110,7 @@ impl VFatDir {
         let ref_guard = vfat.lock_manager().lock(vfat.root_dir_cluster, LockMode::Ref);
         VFatDir {
             vfat: vfat_clone,
-            start_cluster: vfat.root_dir_cluster,
+            first_cluster: vfat.root_dir_cluster,
             ref_guard,
             parent_dir: None
         }
@@ -142,6 +142,7 @@ impl VFatDir {
 
 struct RawDirIterator {
     chain: ClusterChain,
+
 }
 
 impl FallibleIterator for RawDirIterator {
@@ -293,8 +294,11 @@ impl Dir for VFatDir {
     type Iter = DirIterator;
 
     fn entries(&self) -> io::Result<DirIterator> {
+        let chain = ClusterChain::open(self.vfat.clone(), self.first_cluster, LockMode::Read)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "can't open dir for reading"))?;
+
         let raw_iterator = RawDirIterator {
-            chain: ClusterChain::open(self.vfat.clone(), self.start_cluster)
+            chain,
         };
         Ok(DirIterator {
             raw_iterator: raw_iterator.enumerate(),

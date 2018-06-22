@@ -22,6 +22,12 @@ pub trait Dir: Sized {
     fn entries(&self) -> io::Result<Self::Iter>;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileOpenMode {
+    Read,
+    Write,
+}
+
 /// Trait implemented by directory entries in a file system.
 ///
 /// An entry is either a `File` or a `Directory` and is associated with both
@@ -49,11 +55,11 @@ pub trait Entry: Sized {
 
     /// If `self` is a file, returns `Some` of the file. Otherwise returns
     /// `None`.
-    fn open_file(&self) -> Option<Self::File>;
+    fn open_file(&self, mode: FileOpenMode) -> io::Result<Self::File>;
 
     /// If `self` is a directory, returns `Some` of the directory. Otherwise
     /// returns `None`.
-    fn open_dir(&self) -> Option<Self::Dir>;
+    fn open_dir(&self) -> io::Result<Self::Dir>;
 }
 
 /// Trait implemented by file systems.
@@ -88,10 +94,8 @@ pub trait FileSystem: Sized {
     ///
     /// In addition to the error conditions for `open()`, this method returns an
     /// error kind of `Other` if the entry at `path` is not a regular file.
-    fn open_file<P: AsRef<Path>>(&self, path: P) -> io::Result<Self::File> {
-        self.get_entry(path)?
-            .open_file()
-            .ok_or(io::Error::new(io::ErrorKind::Other, "not a regular file"))
+    fn open_file<P: AsRef<Path>>(&self, path: P, mode: FileOpenMode) -> io::Result<Self::File> {
+        self.get_entry(path)?.open_file(mode)
     }
 
     /// Opens the directory at `path`. `path` must be absolute.
@@ -105,9 +109,7 @@ pub trait FileSystem: Sized {
         if path.is_absolute() && path.parent().is_none() {
             self.root()
         } else {
-            self.get_entry(path)?
-                .open_dir()
-                .ok_or(io::Error::new(io::ErrorKind::Other, "not a directory"))
+            self.get_entry(path)?.open_dir()
         }
     }
 
