@@ -3,9 +3,11 @@ use std::io::{self, SeekFrom};
 
 use vfat::{VFatFileSystem, Shared};
 use traits::BlockDevice;
+use vfat::fat::SharedFat;
 
 pub struct ClusterChain {
     vfat: Shared<VFatFileSystem>,
+    fat: SharedFat,
     start_cluster: u32,
     cluster_size_bytes: u32,
     previous_cluster: Option<u32>,
@@ -16,7 +18,9 @@ pub struct ClusterChain {
 impl ClusterChain {
     pub fn open(vfat: Shared<VFatFileSystem>, start_cluster: u32) -> ClusterChain {
         let cluster_size_bytes = vfat.borrow().cluster_size_bytes();
+        let fat = vfat.borrow().fat();
         ClusterChain {
+            fat,
             vfat,
             start_cluster,
             cluster_size_bytes,
@@ -53,8 +57,7 @@ impl ClusterChain {
                 self.position = final_pos;
                 break;
             }
-            let fat = self.vfat.borrow().fat();
-            let next_cluster = fat.get_next_in_chain(self.current_cluster.unwrap())?;
+            let next_cluster = self.fat.get_next_in_chain(self.current_cluster.unwrap())?;
             self.position = next_cluster_start_pos;
             self.previous_cluster = self.current_cluster;
             self.current_cluster = next_cluster;
@@ -104,8 +107,7 @@ impl io::Write for ClusterChain {
         let mut total_write_size = 0;
         loop {
             if self.current_cluster.is_none() {
-                let mut fat = self.vfat.borrow().fat();
-                let new_cluster = fat.alloc_for_chain(self.previous_cluster.unwrap())?;
+                let new_cluster = self.fat.alloc_for_chain(self.previous_cluster.unwrap())?;
                 self.current_cluster = Some(new_cluster);
             }
             let buf_tail = &buf[total_write_size..];

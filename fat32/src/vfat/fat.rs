@@ -1,14 +1,9 @@
 use std::fmt;
-use vfat::Shared;
-use vfat::VFatFileSystem;
 use std::io;
 use traits::BlockDevice;
-use vfat::logical_block_device::LogicalBlockDevice;
-use std::sync::Arc;
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex};
 use vfat::logical_block_device::SharedLogicalBlockDevice;
 use vfat::BiosParameterBlock;
-use std::sync::Mutex;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Status {

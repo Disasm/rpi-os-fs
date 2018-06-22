@@ -7,21 +7,19 @@ use traits::{FileSystem, BlockDevice, FileSystemObject};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::path::Component;
 use vfat::VFatEntry;
-use vfat::fat::Fat;
 use vfat::logical_block_device::SharedLogicalBlockDevice;
 use std::sync::{Arc, Mutex};
 use vfat::fat::SharedFat;
+use vfat::lock_manager::SharedLockManager;
 
 pub struct VFatFileSystem {
     pub(crate) device: SharedLogicalBlockDevice,
     pub(crate) bytes_per_sector: u16,
     pub(crate) sectors_per_cluster: u8,
-    pub(crate) sectors_per_fat: u32,
-    pub(crate) fat_start_sector: u64,
     pub(crate) data_start_sector: u64,
     pub(crate) root_dir_cluster: u32,
-    pub(crate) number_of_fats: u8,
     fat: SharedFat,
+    lock_manager: SharedLockManager,
 }
 
 impl VFatFileSystem {
@@ -35,12 +33,10 @@ impl VFatFileSystem {
             device,
             bytes_per_sector: ebpb.bytes_per_logical_sector,
             sectors_per_cluster: ebpb.logical_sectors_per_cluster,
-            sectors_per_fat: ebpb.logical_sectors_per_fat,
-            fat_start_sector: ebpb.reserved_logical_sectors as u64,
             data_start_sector: (ebpb.reserved_logical_sectors as u64) +
                 (ebpb.number_of_fats as u64 * ebpb.logical_sectors_per_fat as u64),
             root_dir_cluster: ebpb.root_directory_cluster,
-            number_of_fats: ebpb.number_of_fats,
+            lock_manager: SharedLockManager::new(),
         };
         Ok(Shared::new(vfat))
     }
@@ -76,6 +72,10 @@ impl VFatFileSystem {
 
     pub(crate) fn fat(&self) -> SharedFat {
         self.fat.clone()
+    }
+
+    pub(crate) fn lock_manager(&self) -> SharedLockManager {
+        self.lock_manager.clone()
     }
 }
 

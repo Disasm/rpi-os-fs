@@ -451,8 +451,6 @@ fn vfat_fields() {
         assert_eq!(vfat.device.sector_size(), 512);
         assert_eq!(vfat.bytes_per_sector, 512);
         assert_eq!(vfat.sectors_per_cluster, 1);
-        assert_eq!(vfat.sectors_per_fat, 3025);
-        assert_eq!(vfat.fat_start_sector, 32);
         assert_eq!(vfat.data_start_sector, 6082);
         assert_eq!(vfat.root_dir_cluster, 2);
         assert_eq!(vfat.cluster_size_bytes(), 512);
