@@ -1,18 +1,15 @@
 use std::io;
 use std::path::Path;
-use std::mem::size_of;
 
-use vfat::{Shared, File, Dir, FatEntry, Error};
+use vfat::{Shared, VFatFile, VFatDir, Error};
 use vfat::{self, BiosParameterBlock};
 use traits::{FileSystem, BlockDevice, FileSystemObject};
 use vfat::logical_block_device::LogicalBlockDevice;
-use std::mem;
 use std::path::Component;
-use vfat::Entry;
-use std::borrow::BorrowMut;
+use vfat::VFatEntry;
 use vfat::fat::Fat;
 
-pub struct VFat {
+pub struct VFatFileSystem {
     pub(crate) device: LogicalBlockDevice,
     pub(crate) bytes_per_sector: u16,
     pub(crate) sectors_per_cluster: u8,
@@ -24,12 +21,12 @@ pub struct VFat {
     fat: Option<Shared<Fat>>,
 }
 
-impl VFat {
-    pub fn from(mut device: Box<BlockDevice>) -> Result<Shared<VFat>, Error>
+impl VFatFileSystem {
+    pub fn from(mut device: Box<BlockDevice>) -> Result<Shared<VFatFileSystem>, Error>
     {
         let ebpb = BiosParameterBlock::read_from(&mut device)?;
         let logical_block_device = LogicalBlockDevice::new(device, ebpb.bytes_per_logical_sector as u64);
-        let vfat = VFat {
+        let vfat = VFatFileSystem {
             device: logical_block_device,
             bytes_per_sector: ebpb.bytes_per_logical_sector,
             sectors_per_cluster: ebpb.logical_sectors_per_cluster,
@@ -81,13 +78,13 @@ impl VFat {
 }
 
 
-impl Shared<VFat> {
-    pub fn open_entry(&self, entry: &Entry) -> vfat::FileSystemObject {
-        vfat::FileSystemObject::from_entry(self.clone(), entry)
+impl Shared<VFatFileSystem> {
+    pub fn open_entry(&self, entry: &VFatEntry) -> vfat::VFatObject {
+        vfat::VFatObject::from_entry(self.clone(), entry)
     }
 
-    pub fn root(&self) -> vfat::Dir {
-        vfat::FileSystemObject::root(self.clone()).into_dir().unwrap()
+    pub fn root(&self) -> vfat::VFatDir {
+        vfat::VFatObject::root(self.clone()).into_dir().unwrap()
     }
 
     pub fn into_block_device(self) -> Box<BlockDevice> {
@@ -96,13 +93,13 @@ impl Shared<VFat> {
     }
 }
 
-impl<'a> FileSystem for &'a Shared<VFat> {
-    type File = File;
-    type Dir = Dir;
-    type FileSystemObject = vfat::FileSystemObject;
+impl<'a> FileSystem for &'a Shared<VFatFileSystem> {
+    type File = VFatFile;
+    type Dir = VFatDir;
+    type FileSystemObject = vfat::VFatObject;
 
     fn open<P: AsRef<Path>>(self, path: P) -> io::Result<Self::FileSystemObject> {
-        let mut parent = vfat::FileSystemObject::root(self.clone());
+        let mut parent = vfat::VFatObject::root(self.clone());
         for component in path.as_ref().components() {
             if component != Component::RootDir {
                 if !parent.is_dir() {

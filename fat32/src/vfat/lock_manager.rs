@@ -1,18 +1,17 @@
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::Condvar;
-use std::thread;
 
 struct LockManager {
     locks: HashMap<u32, Arc<SharedFSObjectLockInfo>>,
 }
 
 #[derive(Clone)]
-struct SharedLockManager(Arc<Mutex<LockManager>>);
+pub struct SharedLockManager(Arc<Mutex<LockManager>>);
 
 impl SharedLockManager {
-    fn new() -> Self {
+    pub fn new() -> Self {
         let lock_manager = LockManager {
             locks: HashMap::new(),
         };
@@ -23,7 +22,6 @@ impl SharedLockManager {
         let mut inner = self.0.lock().unwrap();
         Arc::clone(inner.locks.entry(cluster).or_insert_with(|| Arc::default()))
     }
-
 
     pub fn lock(&self, cluster: u32, mode: LockMode) -> FSObjectGuard {
         let lock_info = self.get_lock_info(cluster);
@@ -85,12 +83,6 @@ impl SharedLockManager {
                 }
             }
         }
-
-
-
-
-
-
     }
 }
 
@@ -181,7 +173,7 @@ impl Drop for FSObjectGuard {
     }
 }
 
-struct FSObjectGuard(Option<FSObjectValidGuard>);
+pub struct FSObjectGuard(Option<FSObjectValidGuard>);
 
 impl FSObjectGuard {
     fn release(&mut self) {
@@ -192,7 +184,7 @@ impl FSObjectGuard {
 }
 
 #[derive(Clone, Copy, Debug)]
-enum LockMode {
+pub enum LockMode {
     Read,
     Write,
     Ref,
@@ -264,6 +256,8 @@ fn test_basic3() {
 
 #[test]
 fn test_threaded1() {
+    use std::thread;
+
     let manager = SharedLockManager::new();
 
     let manager_copy = manager.clone();
@@ -284,6 +278,8 @@ fn test_threaded1() {
 
 #[test]
 fn test_threaded2() {
+    use std::thread;
+
     let manager = SharedLockManager::new();
 
     let manager_copy = manager.clone();

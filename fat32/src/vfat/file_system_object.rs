@@ -1,18 +1,18 @@
-use traits;
-use vfat::{File, Dir};
-use vfat::Entry;
+use vfat::{VFatFile, VFatDir};
+use vfat::VFatEntry;
 use vfat::Shared;
-use vfat::VFat;
+use vfat::VFatFileSystem;
+use traits::FileSystemObject;
 
-pub struct FileSystemObject {
-    vfat: Shared<VFat>,
+pub struct VFatObject {
+    vfat: Shared<VFatFileSystem>,
     first_cluster: u32,
     size: u32,
     is_dir: bool,
 }
 
-impl FileSystemObject {
-    pub fn from_entry(vfat: Shared<VFat>, entry: &Entry) -> Self {
+impl VFatObject {
+    pub fn from_entry(vfat: Shared<VFatFileSystem>, entry: &VFatEntry) -> Self {
         Self {
             vfat,
             first_cluster: entry.metadata.first_cluster,
@@ -21,7 +21,7 @@ impl FileSystemObject {
         }
     }
 
-    pub fn root(vfat: Shared<VFat>) -> Self {
+    pub fn root(vfat: Shared<VFatFileSystem>) -> Self {
         let first_cluster = vfat.borrow().root_dir_cluster;
         Self {
             vfat,
@@ -32,21 +32,21 @@ impl FileSystemObject {
     }
 }
 
-impl traits::FileSystemObject for FileSystemObject {
-    type File = File;
-    type Dir = Dir;
+impl FileSystemObject for VFatObject {
+    type File = VFatFile;
+    type Dir = VFatDir;
 
-    fn into_file(self) -> Option<File> {
+    fn into_file(self) -> Option<VFatFile> {
         if !self.is_dir {
-            Some(File::open(self.vfat, self.first_cluster, self.size))
+            Some(VFatFile::open(self.vfat, self.first_cluster, self.size))
         } else {
             None
         }
     }
 
-    fn into_dir(self) -> Option<Dir> {
+    fn into_dir(self) -> Option<VFatDir> {
         if self.is_dir {
-            Some(Dir::open(self.vfat, self.first_cluster))
+            Some(VFatDir::open(self.vfat, self.first_cluster))
         } else {
             None
         }

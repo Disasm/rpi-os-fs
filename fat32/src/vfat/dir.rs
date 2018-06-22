@@ -1,20 +1,19 @@
 use std::ffi::OsStr;
 use std::io;
 
-use traits;
-use vfat::{VFat, Shared, Entry};
+use vfat::{VFatFileSystem, Shared, VFatEntry};
 use std::mem;
 use std::io::Read;
 use fallible_iterator::FallibleIterator;
-use traits::{Date, Time, DateTime};
+use traits::{Dir, Date, Time, DateTime};
 use vfat::metadata::Metadata;
 use vfat::metadata::Attributes;
 use vfat::cluster_chain::ClusterChain;
 use fallible_iterator::Enumerate;
 
 //#[derive(Debug)]
-pub struct Dir {
-    vfat: Shared<VFat>,
+pub struct VFatDir {
+    vfat: Shared<VFatFileSystem>,
     start_cluster: u32,
 }
 
@@ -78,9 +77,9 @@ impl VFatDirEntry {
     }
 }
 
-impl Dir {
-    pub fn open(vfat: Shared<VFat>, start_cluster: u32) -> Dir {
-        Dir {
+impl VFatDir {
+    pub fn open(vfat: Shared<VFatFileSystem>, start_cluster: u32) -> VFatDir {
+        VFatDir {
             vfat,
             start_cluster,
         }
@@ -95,7 +94,7 @@ impl Dir {
     ///
     /// If `name` contains invalid UTF-8 characters, an error of `InvalidInput`
     /// is returned.
-    pub fn find<P: AsRef<OsStr>>(&self, name: P) -> io::Result<Entry> {
+    pub fn find<P: AsRef<OsStr>>(&self, name: P) -> io::Result<VFatEntry> {
         use traits::Dir;
         if let Some(name) = name.as_ref().to_str() {
             self.entries()?.find(|entry| &entry.name == name)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
@@ -166,10 +165,10 @@ fn decode_time(raw_time: u16) -> io::Result<Time> {
 }
 
 impl FallibleIterator for DirIterator {
-    type Item = Entry;
+    type Item = VFatEntry;
     type Error = io::Error;
 
-    fn next(&mut self) -> io::Result<Option<Entry>> {
+    fn next(&mut self) -> io::Result<Option<VFatEntry>> {
         if let Some((raw_index, entry)) = self.raw_iterator.find(|&(_, ref entry)| entry.is_valid())? {
             let (long_name, regular_entry, regular_entry_index) = if entry.is_lfn() {
                 let lfn_entry = unsafe { entry.long_filename };
@@ -241,7 +240,7 @@ impl FallibleIterator for DirIterator {
                 first_cluster: ((regular_entry.cluster_high as u32) << 16) | (regular_entry.cluster_low as u32),
                 size: regular_entry.size,
             };
-            let entry = Entry {
+            let entry = VFatEntry {
                 name: file_name,
                 metadata,
                 dir_start_cluster: self.dir_start_cluster,
@@ -255,8 +254,8 @@ impl FallibleIterator for DirIterator {
 }
 
 
-impl traits::Dir for Dir {
-    type Entry = Entry;
+impl Dir for VFatDir {
+    type Entry = VFatEntry;
     type Iter = DirIterator;
 
     fn entries(&self) -> io::Result<DirIterator> {

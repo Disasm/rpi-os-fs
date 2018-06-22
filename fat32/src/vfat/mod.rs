@@ -13,12 +13,11 @@ pub(crate) mod cluster_chain;
 pub(crate) mod lock_manager;
 
 pub use self::ebpb::BiosParameterBlock;
-pub use self::file::File;
-pub use self::dir::Dir;
+pub use self::file::VFatFile;
+pub use self::dir::VFatDir;
 pub use self::error::Error;
-pub use self::vfat::VFat;
-pub use self::entry::Entry;
+pub use self::vfat::VFatFileSystem;
+pub use self::entry::VFatEntry;
 pub use self::shared::Shared;
-pub use self::file_system_object::FileSystemObject;
+pub use self::file_system_object::VFatObject;
 
-pub(crate) use self::fat::{Status, FatEntry};

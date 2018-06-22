@@ -1,12 +1,11 @@
 use std::cmp::min;
 use std::io::{self, SeekFrom};
 
-use vfat::{VFat, Shared};
-use vfat::Status;
+use vfat::{VFatFileSystem, Shared};
 use traits::BlockDevice;
 
 pub struct ClusterChain {
-    vfat: Shared<VFat>,
+    vfat: Shared<VFatFileSystem>,
     start_cluster: u32,
     cluster_size_bytes: u32,
     previous_cluster: Option<u32>,
@@ -15,7 +14,7 @@ pub struct ClusterChain {
 }
 
 impl ClusterChain {
-    pub fn open(vfat: Shared<VFat>, start_cluster: u32) -> ClusterChain {
+    pub fn open(vfat: Shared<VFatFileSystem>, start_cluster: u32) -> ClusterChain {
         let cluster_size_bytes = vfat.borrow().cluster_size_bytes();
         ClusterChain {
             vfat,

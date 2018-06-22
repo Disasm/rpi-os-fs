@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::path::Path;
 
-use vfat::{Shared, VFat, BiosParameterBlock};
+use vfat::{Shared, VFatFileSystem, BiosParameterBlock};
 use mbr::{MasterBootRecord, CHS, PartitionEntry, get_partition};
 use traits::*;
 use fallible_iterator::FallibleIterator;
@@ -103,8 +103,8 @@ fn hash_for(name: &str) -> String {
     string
 }
 
-fn vfat_from_resource(name: &str) -> Shared<VFat> {
-    VFat::from(Box::new(load_partition(name))).expect("failed to initialize VFAT from image")
+fn vfat_from_resource(name: &str) -> Shared<VFatFileSystem> {
+    VFatFileSystem::from(Box::new(load_partition(name))).expect("failed to initialize VFAT from image")
 }
 
 //fn vfat_from_block_device<T: BlockDevice + 'static>(block_device: T) -> Shared<VFat> {
@@ -247,7 +247,7 @@ fn hash_dir<T: Dir>(
     Ok(entries)
 }
 
-fn hash_dir_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
+fn hash_dir_from<P: AsRef<Path>>(vfat: Shared<VFatFileSystem>, path: P) -> String {
     let mut hash = String::new();
     hash_dir(&mut hash, vfat.open_dir(path).expect("directory exists")).unwrap();
     hash
@@ -270,7 +270,7 @@ fn test_root_entries() {
 
 fn hash_dir_recursive<P: AsRef<Path>>(
     hash: &mut String,
-    vfat: Shared<VFat>,
+    vfat: Shared<VFatFileSystem>,
     path: P
 ) -> ::std::fmt::Result {
     use std::fmt::Write;
@@ -294,7 +294,7 @@ fn hash_dir_recursive<P: AsRef<Path>>(
     Ok(())
 }
 
-fn hash_dir_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
+fn hash_dir_recursive_from<P: AsRef<Path>>(vfat: Shared<VFatFileSystem>, path: P) -> String {
     let mut hash = String::new();
     hash_dir_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -346,7 +346,7 @@ fn hash_file<T: File>(hash: &mut String, mut file: T) -> ::std::fmt::Result {
 
 fn hash_files_recursive<P: AsRef<Path>>(
     hash: &mut String,
-    vfat: Shared<VFat>,
+    vfat: Shared<VFatFileSystem>,
     path: P
 ) -> ::std::fmt::Result {
     let path = path.as_ref();
@@ -375,7 +375,7 @@ fn hash_files_recursive<P: AsRef<Path>>(
     Ok(())
 }
 
-fn hash_files_recursive_from<P: AsRef<Path>>(vfat: Shared<VFat>, path: P) -> String {
+fn hash_files_recursive_from<P: AsRef<Path>>(vfat: Shared<VFatFileSystem>, path: P) -> String {
     let mut hash = String::new();
     hash_files_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -408,7 +408,7 @@ fn test_mock4_files_recursive() {
 #[test]
 fn shared_fs_is_sync_send_static() {
     fn f<T: Sync + Send + 'static>() {  }
-    f::<Shared<VFat>>();
+    f::<Shared<VFatFileSystem>>();
 }
 
 #[test]
@@ -478,7 +478,7 @@ fn vfat_fields() {
 #[test]
 fn vfat_file() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut file = ::vfat::File::open(vfat, 2, 512);
+    let mut file = ::vfat::VFatFile::open(vfat, 2, 512);
 
     let mut buffer = [0; 16];
     file.read_exact(&mut buffer).unwrap();
@@ -489,7 +489,7 @@ fn vfat_file() {
 #[test]
 fn vfat_file2() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let mut file = ::vfat::File::open(vfat, 2, 512);
+    let mut file = ::vfat::VFatFile::open(vfat, 2, 512);
 
     let mut buffer = [0; 4];
     let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
@@ -587,7 +587,7 @@ fn vfat_file_write1() {
         file.write_all(&[1, 2, 3]).unwrap();
     }
     let partition = vfat.into_block_device();
-    let vfat = VFat::from(partition).unwrap();
+    let vfat = VFatFileSystem::from(partition).unwrap();
     let mut file = vfat.open_file(file_path).unwrap();
 
     let mut buffer = [0; 512];
@@ -609,7 +609,7 @@ fn vfat_file_write2() {
         assert_eq!(file.size(), 76738);
     }
     let partition = vfat.into_block_device();
-    let vfat = VFat::from(partition).unwrap();
+    let vfat = VFatFileSystem::from(partition).unwrap();
     let mut file = vfat.open_file(file_path).unwrap();
     assert_eq!(file.size(), 76738);
     file.seek(SeekFrom::End(5)).unwrap();

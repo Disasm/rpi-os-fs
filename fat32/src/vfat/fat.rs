@@ -1,8 +1,7 @@
 use std::fmt;
 use vfat::Shared;
-use vfat::VFat;
+use vfat::VFatFileSystem;
 use std::io;
-use std::mem::size_of;
 use traits::BlockDevice;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -52,7 +51,7 @@ impl fmt::Debug for FatEntry {
 
 
 struct SingleFat {
-    vfat: Shared<VFat>,
+    vfat: Shared<VFatFileSystem>,
     offset: u64,
     size: u32,
 }
@@ -60,7 +59,7 @@ struct SingleFat {
 impl SingleFat {
     const FAT_ENTRY_SIZE: u64 = 4;
 
-    fn new(vfat: Shared<VFat>, index: u8) -> SingleFat {
+    fn new(vfat: Shared<VFatFileSystem>, index: u8) -> SingleFat {
         let (offset, size) = {
             let vfat = vfat.borrow();
 
@@ -103,7 +102,7 @@ pub struct Fat {
 }
 
 impl Fat {
-    pub(crate) fn new(vfat: Shared<VFat>) -> Self {
+    pub(crate) fn new(vfat: Shared<VFatFileSystem>) -> Self {
         let number_of_fats = vfat.borrow().number_of_fats;
         Fat {
             fats: (0..number_of_fats).map(|i| SingleFat::new(vfat.clone(), i)).collect(),

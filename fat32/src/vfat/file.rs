@@ -1,20 +1,20 @@
 use std::cmp::min;
 use std::io::{self, SeekFrom};
 
-use traits;
-use vfat::{VFat, Shared};
+use vfat::{VFatFileSystem, Shared};
 use vfat::cluster_chain::ClusterChain;
+use traits::File;
 
-pub struct File {
+pub struct VFatFile {
     chain: ClusterChain,
     size: u32,
     dir_start_cluster: u32,
     regular_entry_index: u64,
 }
 
-impl File {
-    pub fn open(vfat: Shared<VFat>, start_cluster: u32, size: u32) -> File {
-        File {
+impl VFatFile {
+    pub fn open(vfat: Shared<VFatFileSystem>, start_cluster: u32, size: u32) -> VFatFile {
+        VFatFile {
             chain: ClusterChain::open(vfat, start_cluster),
             size,
             dir_start_cluster: unimplemented!(),
@@ -27,7 +27,7 @@ impl File {
     }
 }
 
-impl io::Read for File {
+impl io::Read for VFatFile {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.at_end() {
             return Ok(0);
@@ -37,7 +37,7 @@ impl io::Read for File {
     }
 }
 
-impl io::Write for File {
+impl io::Write for VFatFile {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let write_size = self.chain.write(buf)?;
 
@@ -55,13 +55,13 @@ impl io::Write for File {
     }
 }
 
-impl traits::File for File {
+impl File for VFatFile {
     fn size(&self) -> u64 {
         self.size as u64
     }
 }
 
-impl io::Seek for File {
+impl io::Seek for VFatFile {
     /// Seek to offset `pos` in the file.
     ///
     /// A seek to the end of the file is allowed. A seek _beyond_ the end of the
