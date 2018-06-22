@@ -1,6 +1,8 @@
 use traits::BlockDevice;
 use std::io;
 use std::cmp::min;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 pub struct LogicalBlockDevice {
     pub(crate) source: Box<BlockDevice>,
@@ -43,3 +45,5 @@ impl BlockDevice for LogicalBlockDevice {
         self.source.sync()
     }
 }
+
+pub type SharedLogicalBlockDevice = Arc<Mutex<LogicalBlockDevice>>;

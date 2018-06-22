@@ -468,10 +468,10 @@ fn vfat_fields() {
     }
 
     let fat = vfat.borrow().fat();
-    let entry = fat.borrow().get_next_in_chain(2).unwrap();
+    let entry = fat.get_next_in_chain(2).unwrap();
     assert_eq!(entry, None);
 
-    let entry = fat.borrow().get_next_in_chain(5).unwrap();
+    let entry = fat.get_next_in_chain(5).unwrap();
     assert_eq!(entry, Some(6));
 }
 

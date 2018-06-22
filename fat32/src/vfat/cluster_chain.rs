@@ -54,7 +54,7 @@ impl ClusterChain {
                 break;
             }
             let fat = self.vfat.borrow().fat();
-            let next_cluster = fat.borrow().get_next_in_chain(self.current_cluster.unwrap())?;
+            let next_cluster = fat.get_next_in_chain(self.current_cluster.unwrap())?;
             self.position = next_cluster_start_pos;
             self.previous_cluster = self.current_cluster;
             self.current_cluster = next_cluster;
@@ -104,8 +104,8 @@ impl io::Write for ClusterChain {
         let mut total_write_size = 0;
         loop {
             if self.current_cluster.is_none() {
-                let fat = self.vfat.borrow().fat();
-                let new_cluster = fat.borrow_mut().alloc_for_chain(self.previous_cluster.unwrap())?;
+                let mut fat = self.vfat.borrow().fat();
+                let new_cluster = fat.alloc_for_chain(self.previous_cluster.unwrap())?;
                 self.current_cluster = Some(new_cluster);
             }
             let buf_tail = &buf[total_write_size..];

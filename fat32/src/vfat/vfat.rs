@@ -8,9 +8,12 @@ use vfat::logical_block_device::LogicalBlockDevice;
 use std::path::Component;
 use vfat::VFatEntry;
 use vfat::fat::Fat;
+use vfat::logical_block_device::SharedLogicalBlockDevice;
+use std::sync::{Arc, Mutex};
+use vfat::fat::SharedFat;
 
 pub struct VFatFileSystem {
-    pub(crate) device: LogicalBlockDevice,
+    pub(crate) device: SharedLogicalBlockDevice,
     pub(crate) bytes_per_sector: u16,
     pub(crate) sectors_per_cluster: u8,
     pub(crate) sectors_per_fat: u32,
@@ -18,7 +21,7 @@ pub struct VFatFileSystem {
     pub(crate) data_start_sector: u64,
     pub(crate) root_dir_cluster: u32,
     pub(crate) number_of_fats: u8,
-    fat: Option<Shared<Fat>>,
+    fat: SharedFat,
 }
 
 impl VFatFileSystem {
@@ -26,8 +29,10 @@ impl VFatFileSystem {
     {
         let ebpb = BiosParameterBlock::read_from(&mut device)?;
         let logical_block_device = LogicalBlockDevice::new(device, ebpb.bytes_per_logical_sector as u64);
+        let device = Mutex::new(logical_block_device).into();
         let vfat = VFatFileSystem {
-            device: logical_block_device,
+            fat: SharedFat::new(&device, &ebpb),
+            device,
             bytes_per_sector: ebpb.bytes_per_logical_sector,
             sectors_per_cluster: ebpb.logical_sectors_per_cluster,
             sectors_per_fat: ebpb.logical_sectors_per_fat,
@@ -36,11 +41,8 @@ impl VFatFileSystem {
                 (ebpb.number_of_fats as u64 * ebpb.logical_sectors_per_fat as u64),
             root_dir_cluster: ebpb.root_directory_cluster,
             number_of_fats: ebpb.number_of_fats,
-            fat: None,
         };
-        let vfat = Shared::new(vfat);
-        vfat.borrow_mut().fat = Some(Shared::new(Fat::new(vfat.clone())));
-        Ok(vfat)
+        Ok(Shared::new(vfat))
     }
 
     pub(crate) fn cluster_size_bytes(&self) -> u32 {
@@ -72,8 +74,8 @@ impl VFatFileSystem {
         self.device.write_by_offset(full_offset, buf)
     }
 
-    pub(crate) fn fat(&self) -> Shared<Fat> {
-        self.fat.clone().unwrap()
+    pub(crate) fn fat(&self) -> SharedFat {
+        self.fat.clone()
     }
 }
 
@@ -88,8 +90,8 @@ impl Shared<VFatFileSystem> {
     }
 
     pub fn into_block_device(self) -> Box<BlockDevice> {
-        self.borrow_mut().fat = None;
-        self.unwrap().device.source
+        // TODO: unwrap fat, lock manager
+        Arc::try_unwrap(self.unwrap().device).ok().unwrap().into_inner().unwrap().source
     }
 }
 
