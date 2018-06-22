@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::Condvar;
@@ -33,6 +33,7 @@ impl SharedLockManager {
                 let valid_guard = FSObjectValidGuard {
                     lock_manager: self.clone(),
                     cluster,
+                    lock_info: Arc::clone(&lock_info),
                     mode
                 };
                 return FSObjectGuard(Some(valid_guard));
@@ -49,6 +50,7 @@ impl SharedLockManager {
             let valid_guard = FSObjectValidGuard {
                 lock_manager: self.clone(),
                 cluster,
+                lock_info: Arc::clone(&lock_info),
                 mode
             };
             return Some(FSObjectGuard(Some(valid_guard)));
@@ -57,11 +59,38 @@ impl SharedLockManager {
         }
     }
 
-    fn release(&self, guard: &FSObjectValidGuard) {
-        let lock_info = self.get_lock_info(guard.cluster);
-        let mut data = lock_info.data.lock().unwrap();
-        data.remove_lock(guard.mode);
-        lock_info.condvar.notify_all();
+    fn release(&self, guard: &mut FSObjectGuard) {
+        let cluster_to_free = if let Some(ref guard) = guard.0 {
+            let mut data = guard.lock_info.data.lock().unwrap();
+            data.remove_lock(guard.mode);
+            guard.lock_info.condvar.notify_all();
+            if !data.is_locked() {
+                Some(guard.cluster)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        guard.0 = None;
+
+        if let Some(cluster) = cluster_to_free {
+            let mut inner = self.0.lock().unwrap();
+            if let Some(lock_info) = inner.locks.remove(&cluster) {
+                match Arc::try_unwrap(lock_info) {
+                    Ok(_) => {},
+                    Err(lock_info) => {
+                        inner.locks.insert(cluster, lock_info);
+                    },
+                }
+            }
+        }
+
+
+
+
+
+
     }
 }
 
@@ -101,7 +130,7 @@ impl FSObjectLockInfo {
                 self.ref_locks += 1;
             },
             LockMode::Delete => {
-                if self.has_any_refs() {
+                if self.is_locked() {
                     return false;
                 }
                 self.is_delete_locked = true;
@@ -134,7 +163,7 @@ impl FSObjectLockInfo {
 
 
 impl FSObjectLockInfo {
-    fn has_any_refs(&self) -> bool {
+    fn is_locked(&self) -> bool {
         (self.ref_locks > 0) || (self.read_locks > 0) || self.is_write_locked || self.is_delete_locked
     }
 }
@@ -142,12 +171,13 @@ impl FSObjectLockInfo {
 struct FSObjectValidGuard {
     lock_manager: SharedLockManager,
     cluster: u32,
+    lock_info: Arc<SharedFSObjectLockInfo>,
     mode: LockMode,
 }
 
-impl Drop for FSObjectValidGuard {
+impl Drop for FSObjectGuard {
     fn drop(&mut self) {
-        self.lock_manager.release(self);
+        self.release();
     }
 }
 
@@ -155,7 +185,9 @@ struct FSObjectGuard(Option<FSObjectValidGuard>);
 
 impl FSObjectGuard {
     fn release(&mut self) {
-        self.0 = None;
+        if let Some(lock_manager) = self.0.as_ref().map(|g| g.lock_manager.clone()) {
+            lock_manager.release(self);
+        }
     }
 }
 
@@ -271,4 +303,36 @@ fn test_threaded2() {
 
     let lock = manager.try_lock(42, LockMode::Read);
     assert!(lock.is_some());
+}
+
+
+#[test]
+fn test_hash_map_cleanup1() {
+    let id = 42;
+    let manager = SharedLockManager::new();
+    let lock1 = manager.try_lock(id, LockMode::Read);
+    assert!(lock1.is_some());
+    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+
+    drop(lock1);
+    assert!(!manager.0.lock().unwrap().locks.contains_key(&id));
+}
+
+#[test]
+fn test_hash_map_cleanup2() {
+    let id = 42;
+    let manager = SharedLockManager::new();
+    let lock1 = manager.try_lock(id, LockMode::Read);
+    assert!(lock1.is_some());
+    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+
+    let lock2 = manager.try_lock(id, LockMode::Ref);
+    assert!(lock2.is_some());
+    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+
+    drop(lock1);
+    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+
+    drop(lock2);
+    assert!(!manager.0.lock().unwrap().locks.contains_key(&id));
 }
