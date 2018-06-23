@@ -23,7 +23,6 @@ impl Drop for VFatFile {
 }
 impl VFatFile {
     pub fn from_entry(entry: &VFatEntry, mode: FileOpenMode) -> io::Result<VFatFile> {
-        // TODO: get current size from dir?
         let vfat = entry.vfat();
         let mode = match mode {
             FileOpenMode::Read => LockMode::Read,
