@@ -181,9 +181,12 @@ impl FSObjectGuard {
             lock_manager.release(self);
         }
     }
+    pub(crate) fn mode(&self) -> Option<LockMode> {
+        self.0.as_ref().map(|g| g.mode)
+    }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LockMode {
     Read,
     Write,

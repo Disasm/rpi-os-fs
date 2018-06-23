@@ -16,8 +16,14 @@ pub struct VFatFile {
     entry: VFatEntry,
 }
 
+impl Drop for VFatFile {
+    fn drop(&mut self) {
+        unimplemented!()
+    }
+}
 impl VFatFile {
     pub fn from_entry(entry: &VFatEntry, mode: FileOpenMode) -> io::Result<VFatFile> {
+        // TODO: get current size from dir?
         let vfat = entry.vfat();
         let mode = match mode {
             FileOpenMode::Read => LockMode::Read,
@@ -28,7 +34,7 @@ impl VFatFile {
 
         Ok(VFatFile {
             chain,
-            size: entry.metadata.size,
+            size: entry.current_file_size()?,
             entry: entry.clone(),
         })
     }
@@ -37,9 +43,7 @@ impl VFatFile {
         self.chain.position == self.size as u64
     }
 
-    pub fn close(&self) {
-        unimplemented!()
-    }
+    pub fn close(self) {}
 }
 
 impl io::Read for VFatFile {
@@ -66,7 +70,10 @@ impl io::Write for VFatFile {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.chain.flush()
+        self.chain.flush();
+        // TODO: only if size has been changed
+        self.entry.set_file_size(self.size)?;
+        Ok(())
     }
 }
 

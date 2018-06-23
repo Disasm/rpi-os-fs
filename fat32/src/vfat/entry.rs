@@ -22,9 +22,13 @@ impl VFatEntry {
         self.dir.vfat.clone()
     }
 
-    fn set_file_size(&mut self, size: u32) -> io::Result<()> {
+    pub(crate) fn set_file_size(&mut self, size: u32) -> io::Result<()> {
         assert!(!self.metadata.is_dir());
         self.dir.set_file_size(self.regular_entry_index, size)
+    }
+
+    pub(crate) fn current_file_size(&self) -> io::Result<u32> {
+        self.dir.get_file_size(self.regular_entry_index)
     }
 }
 

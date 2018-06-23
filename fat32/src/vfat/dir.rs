@@ -138,6 +138,10 @@ impl VFatDir {
     pub fn set_file_size(&mut self, raw_entry_index: u64, size: u32) -> io::Result<()> {
         unimplemented!()
     }
+
+    pub fn get_file_size(&self, raw_entry_index: u64) -> io::Result<u32> {
+        unimplemented!()
+    }
 }
 
 struct RawDirIterator {

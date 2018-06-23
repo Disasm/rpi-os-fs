@@ -111,6 +111,9 @@ impl io::Read for ClusterChain {
 
 impl io::Write for ClusterChain {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.guard.mode() != Some(LockMode::Write) {
+            return Err(io::Error::new(io::ErrorKind::Other, "file is opened for reading only"));
+        }
         let mut total_write_size = 0;
         loop {
             if self.current_cluster.is_none() {
