@@ -579,11 +579,19 @@ fn vfat_cluster_chain5() {
 }
 
 #[test]
+fn vfat_file_write_read_only() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let mut file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
+    file.write_all(&[1, 2, 3]).unwrap_err();
+}
+
+#[test]
 fn vfat_file_write1() {
     let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
     let vfat = vfat_from_resource("mock1.fat32.img");
     {
-        let mut file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
+        let mut file = vfat.open_file(file_path, FileOpenMode::Write).unwrap();
         //file.seek(SeekFrom::End(0)).unwrap();
         file.write_all(&[1, 2, 3]).unwrap();
     }
