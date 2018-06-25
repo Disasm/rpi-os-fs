@@ -167,7 +167,7 @@ pub trait FileSystem: Sized {
     /// is returned.
     ///
     /// All other error values are implementation defined.
-    fn create_dir<P: AsRef<Path>>(&self, path: P, parents: bool) -> io::Result<Self::Dir>;
+    fn create_dir<P: AsRef<Path>>(&self, path: P) -> io::Result<Self::Dir>;
 
     /// Renames the entry at path `from` to `to`. But `from` and `to` must be
     /// absolute.
@@ -200,5 +200,5 @@ pub trait FileSystem: Sized {
     /// error kind of `Other` is returned.
     ///
     /// All other error values are implementation defined.
-    fn remove<P: AsRef<Path>>(&self, path: P, children: bool) -> io::Result<()>;
+    fn remove<P: AsRef<Path>>(&self, path: P) -> io::Result<()>;
 }

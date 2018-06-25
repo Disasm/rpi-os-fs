@@ -85,17 +85,10 @@ impl VFatDirEntry {
     }
 }
 
+
+
 impl VFatDir {
-    pub fn from_entry(entry: &VFatEntry) -> SharedVFatDir {
-        Self::new(entry.vfat(), entry.metadata.first_cluster, Some(entry.dir.clone()))
-    }
-
-    pub fn root(vfat: Shared<VFatFileSystem>) -> SharedVFatDir {
-        let first_cluster = vfat.borrow().root_dir_cluster;
-        Self::new(vfat, first_cluster, None)
-    }
-
-    fn new(vfat: Shared<VFatFileSystem>, first_cluster: u32, parent_dir: Option<SharedVFatDir>) -> SharedVFatDir {
+    pub fn open(vfat: Shared<VFatFileSystem>, first_cluster: u32, parent_dir: Option<SharedVFatDir>) -> SharedVFatDir {
         if let Some(r) = vfat.borrow_mut().dir(first_cluster) {
             return r;
         }
@@ -150,6 +143,7 @@ impl VFatDir {
         let buf: [u8; VFatDirEntry::SIZE] = unsafe { mem::transmute(entry) };
         self.chain.write_all(&buf)
     }
+
 }
 
 

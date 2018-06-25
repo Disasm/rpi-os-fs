@@ -72,7 +72,7 @@ impl Entry for VFatEntry {
 
     fn open_dir(&self) -> io::Result<SharedVFatDir> {
         if self.metadata.is_dir() {
-            Ok(VFatDir::from_entry(self))
+            Ok(self.vfat().get_dir_from_entry(self))
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "not a directory"))
         }

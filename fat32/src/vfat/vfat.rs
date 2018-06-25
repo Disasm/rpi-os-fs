@@ -103,6 +103,21 @@ impl Shared<VFatFileSystem> {
         vfat.fat.try_unwrap().ok().unwrap();
         Arc::try_unwrap(vfat.device).ok().unwrap().into_inner().unwrap().source
     }
+
+    fn get_dir(&self, first_cluster: u32, parent_dir: Option<SharedVFatDir>) -> SharedVFatDir {
+        if let Some(r) = self.borrow_mut().dir(first_cluster) {
+            return r;
+        }
+        let dir = VFatDir::open(self.clone(), first_cluster, parent_dir);
+        self.borrow_mut().put_dir(first_cluster, Arc::clone(&dir));
+        dir
+    }
+
+    pub fn get_dir_from_entry(&self, entry: &VFatEntry) -> SharedVFatDir {
+        Self::get_dir(self, entry.metadata.first_cluster, Some(entry.dir.clone()))
+    }
+
+
 }
 
 impl FileSystem for Shared<VFatFileSystem> {
@@ -115,7 +130,7 @@ impl FileSystem for Shared<VFatFileSystem> {
         if !path.is_absolute() {
             return Err(io::Error::new(io::ErrorKind::Other, "relative paths are not supported"));
         }
-        let mut parent = VFatDir::root(self.clone());
+        let mut parent = self.root().unwrap();
         let mut iterator = path.components().peekable();
         while let Some(component) = iterator.next() {
             if component == Component::RootDir {
@@ -132,14 +147,15 @@ impl FileSystem for Shared<VFatFileSystem> {
     }
 
     fn root(&self) -> io::Result<SharedVFatDir> {
-        Ok(VFatDir::root(self.clone()))
+        let first_cluster = self.borrow().root_dir_cluster;
+        Ok(Self::get_dir(self, first_cluster, None))
     }
 
     fn create_file<P: AsRef<Path>>(&self, _path: P) -> io::Result<Self::File> {
         unimplemented!()
     }
 
-    fn create_dir<P>(&self, _path: P, _parents: bool) -> io::Result<Self::Dir>
+    fn create_dir<P>(&self, _path: P) -> io::Result<Self::Dir>
         where P: AsRef<Path>
     {
         unimplemented!()
@@ -151,7 +167,17 @@ impl FileSystem for Shared<VFatFileSystem> {
         unimplemented!()
     }
 
-    fn remove<P: AsRef<Path>>(&self, _path: P, _children: bool) -> io::Result<()> {
+    fn remove<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+        let path = path.as_ref();
+        if !path.is_absolute() {
+            return Err(io::Error::new(io::ErrorKind::Other, "relative paths are not supported"));
+        }
+        let dir = self.open_dir(path)?;
+        if let Some(dir) = Arc::try_unwrap(dir).ok().and_then(|m| m.into_inner().ok()) {
+
+        }
+        let parent_path = path.parent().ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
+        let parent_dir = self.open_dir(parent_path)?;
         unimplemented!()
     }
 }
