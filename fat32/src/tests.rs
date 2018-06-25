@@ -626,6 +626,6 @@ fn vfat_file_write2() {
     let mut buffer = [0; 5];
     file.read_exact(&mut buffer).unwrap();
 
-    let bytes = [0x00, 0x00, 0x01, 0x02, 0x03];
+    let bytes = [0x46, 0x0A, 0x01, 0x02, 0x03];
     assert_eq!(buffer, bytes);
 }
