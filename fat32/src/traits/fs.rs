@@ -3,6 +3,7 @@ use std::path::Path;
 
 use traits::Metadata;
 use fallible_iterator::FallibleIterator;
+use std::ffi::OsStr;
 
 /// Trait implemented by files in the file system.
 pub trait File: io::Read + io::Write + io::Seek + Sized {
@@ -20,6 +21,24 @@ pub trait Dir: Sized {
 
     /// Returns an interator over the entries in this directory.
     fn entries(&self) -> io::Result<Self::Iter>;
+
+    /// Finds the entry named `name` in `self` and returns it. Comparison is
+    /// case-sensitive.
+    ///
+    /// # Errors
+    ///
+    /// If no entry with name `name` exists in `self`, an error of `NotFound` is
+    /// returned.
+    ///
+    /// If `name` contains invalid UTF-8 characters, an error of `InvalidInput`
+    /// is returned.
+    fn find<P: AsRef<OsStr>>(&self, name: P) -> io::Result<Self::Entry> {
+        if let Some(name) = name.as_ref().to_str() {
+            self.entries()?.find(|entry| entry.name() == name)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
+        } else {
+            Err(io::Error::from(io::ErrorKind::NotFound))
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

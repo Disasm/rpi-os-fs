@@ -152,6 +152,10 @@ impl SharedFat {
         SharedFat(Mutex::new(fat).into())
     }
 
+    pub(crate) fn try_unwrap(self) -> Result<Mutex<Fat>, Arc<Mutex<Fat>>> {
+        Arc::try_unwrap(self.0)
+    }
+
     // TODO: return Result instead of panicking
     pub fn destroy(self) {
         Arc::try_unwrap(self.0).ok().unwrap().into_inner().unwrap();

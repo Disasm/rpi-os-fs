@@ -8,27 +8,28 @@ use vfat::lock_manager::LockMode;
 use vfat::Shared;
 use vfat::VFatFileSystem;
 use traits::FileOpenMode;
+use vfat::dir::SharedVFatDir;
 
 pub struct VFatEntry {
     pub(crate) name: String,
     pub(crate) metadata: VFatMetadata,
-    pub(crate) dir: VFatDir,
+    pub(crate) dir: SharedVFatDir,
     pub(crate) regular_entry_index: u64,
     pub(crate) ref_guard: FSObjectGuard,
 }
 
 impl VFatEntry {
     pub(crate) fn vfat(&self) -> Shared<VFatFileSystem> {
-        self.dir.vfat.clone()
+        self.dir.lock().unwrap().vfat.clone()
     }
 
     pub(crate) fn set_file_size(&mut self, size: u32) -> io::Result<()> {
         assert!(!self.metadata.is_dir());
-        self.dir.set_file_size(self.regular_entry_index, size)
+        self.dir.lock().unwrap().set_file_size(self.regular_entry_index, size)
     }
 
     pub(crate) fn current_file_size(&self) -> io::Result<u32> {
-        self.dir.get_file_size(self.regular_entry_index)
+        self.dir.lock().unwrap().get_file_size(self.regular_entry_index)
     }
 }
 
@@ -48,7 +49,7 @@ impl Clone for VFatEntry {
 
 impl Entry for VFatEntry {
     type File = VFatFile;
-    type Dir = VFatDir;
+    type Dir = SharedVFatDir;
     type Metadata = VFatMetadata;
 
     fn name(&self) -> &str {
@@ -67,7 +68,7 @@ impl Entry for VFatEntry {
         }
     }
 
-    fn open_dir(&self) -> io::Result<VFatDir> {
+    fn open_dir(&self) -> io::Result<SharedVFatDir> {
         if self.metadata.is_dir() {
             Ok(VFatDir::from_entry(self))
         } else {

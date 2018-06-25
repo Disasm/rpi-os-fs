@@ -1,5 +1,5 @@
 use std::cmp::min;
-use std::io::{self, SeekFrom};
+use std::io::{self, Write, SeekFrom};
 
 use vfat::{VFatFileSystem, Shared};
 use vfat::cluster_chain::ClusterChain;
@@ -13,14 +13,16 @@ use vfat::lock_manager::LockMode;
 pub struct VFatFile {
     chain: ClusterChain,
     size: u32,
+    old_size: u32,
     entry: VFatEntry,
 }
 
 impl Drop for VFatFile {
     fn drop(&mut self) {
-        unimplemented!()
+        let _ = self.flush();
     }
 }
+
 impl VFatFile {
     pub fn from_entry(entry: &VFatEntry, mode: FileOpenMode) -> io::Result<VFatFile> {
         let vfat = entry.vfat();
@@ -31,9 +33,11 @@ impl VFatFile {
         let chain = ClusterChain::open(vfat, entry.metadata.first_cluster, mode)
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "can't lock file"))?;
 
+        let size = entry.current_file_size()?;
         Ok(VFatFile {
             chain,
-            size: entry.current_file_size()?,
+            size,
+            old_size: size,
             entry: entry.clone(),
         })
     }
@@ -70,8 +74,10 @@ impl io::Write for VFatFile {
 
     fn flush(&mut self) -> io::Result<()> {
         self.chain.flush();
-        // TODO: only if size has been changed
-        self.entry.set_file_size(self.size)?;
+        if self.size != self.old_size {
+            self.entry.set_file_size(self.size)?;
+            self.old_size = self.size;
+        }
         Ok(())
     }
 }

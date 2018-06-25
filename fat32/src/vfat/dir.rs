@@ -13,24 +13,20 @@ use fallible_iterator::Enumerate;
 use vfat::lock_manager::LockMode;
 use vfat::lock_manager::FSObjectGuard;
 use std::ops::Deref;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::io::SeekFrom;
+use std::io::Seek;
+use std::io::ErrorKind;
 
 pub struct VFatDir {
     pub(crate) vfat: Shared<VFatFileSystem>,
     first_cluster: u32,
-    ref_guard: FSObjectGuard,
-    parent_dir: Option<Box<VFatDir>>,
+    parent_dir: Option<SharedVFatDir>,
+    chain: ClusterChain,
 }
 
-impl Clone for VFatDir {
-    fn clone(&self) -> Self {
-        Self {
-            vfat: self.vfat.clone(),
-            first_cluster: self.first_cluster,
-            ref_guard: self.vfat.borrow().lock_manager().lock(self.first_cluster, LockMode::Ref),
-            parent_dir: self.parent_dir.as_ref().cloned(),
-        }
-    }
-}
+pub type SharedVFatDir = Arc<Mutex<VFatDir>>;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
@@ -93,67 +89,46 @@ impl VFatDirEntry {
 }
 
 impl VFatDir {
-    pub fn from_entry(entry: &VFatEntry) -> VFatDir {
-        let vfat = entry.vfat();
-        let ref_guard = vfat.borrow().lock_manager().lock(entry.metadata.first_cluster, LockMode::Ref);
-        VFatDir {
-            vfat,
-            first_cluster: entry.metadata.first_cluster,
-            ref_guard,
-            parent_dir: Some(Box::new(entry.dir.clone())),
-        }
+    pub fn from_entry(entry: &VFatEntry) -> SharedVFatDir {
+        Self::new(entry.vfat(), entry.metadata.first_cluster, Some(entry.dir.clone()))
     }
 
-    pub fn root(vfat: Shared<VFatFileSystem>) -> VFatDir {
-        let vfat_clone = vfat.clone();
-        let vfat = vfat.borrow();
-        let ref_guard = vfat.lock_manager().lock(vfat.root_dir_cluster, LockMode::Ref);
-        VFatDir {
-            vfat: vfat_clone,
-            first_cluster: vfat.root_dir_cluster,
-            ref_guard,
-            parent_dir: None
-        }
+    pub fn root(vfat: Shared<VFatFileSystem>) -> SharedVFatDir {
+        let first_cluster = vfat.borrow().root_dir_cluster;
+        Self::new(vfat, first_cluster, None)
     }
 
-    /// Finds the entry named `name` in `self` and returns it. Comparison is
-    /// case-sensitive.
-    ///
-    /// # Errors
-    ///
-    /// If no entry with name `name` exists in `self`, an error of `NotFound` is
-    /// returned.
-    ///
-    /// If `name` contains invalid UTF-8 characters, an error of `InvalidInput`
-    /// is returned.
-    pub fn find<P: AsRef<OsStr>>(&self, name: P) -> io::Result<VFatEntry> {
-        use traits::Dir;
-        if let Some(name) = name.as_ref().to_str() {
-            self.entries()?.find(|entry| &entry.name == name)?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))
-        } else {
-            Err(io::Error::from(io::ErrorKind::NotFound))
+    fn new(vfat: Shared<VFatFileSystem>, first_cluster: u32, parent_dir: Option<SharedVFatDir>) -> SharedVFatDir {
+        if let Some(r) = vfat.borrow_mut().dir(first_cluster) {
+            return r;
         }
+        let chain = ClusterChain::open(vfat.clone(), first_cluster, LockMode::Write).unwrap();
+        let dir = Arc::new(Mutex::new(VFatDir {
+            chain,
+            vfat: vfat.clone(),
+            first_cluster,
+            parent_dir,
+        }));
+        vfat.borrow_mut().put_dir(first_cluster, Arc::clone(&dir));
+        dir
     }
 
     pub fn set_file_size(&mut self, raw_entry_index: u64, size: u32) -> io::Result<()> {
         unimplemented!()
     }
 
-    pub fn get_file_size(&self, raw_entry_index: u64) -> io::Result<u32> {
-        unimplemented!()
+    pub fn get_file_size(&mut self, raw_entry_index: u64) -> io::Result<u32> {
+        let entry = self.get_raw_entry(raw_entry_index)?.ok_or_else(|| io::Error::from(io::ErrorKind::Other))?;
+        if entry.is_regular() {
+            let entry = unsafe { entry.regular };
+            Ok(entry.size)
+        } else {
+            Err(io::Error::new(io::ErrorKind::Other, "invalid entry type"))
+        }
     }
-}
 
-struct RawDirIterator {
-    chain: ClusterChain,
-
-}
-
-impl FallibleIterator for RawDirIterator {
-    type Item = VFatDirEntry;
-    type Error = io::Error;
-
-    fn next(&mut self) -> io::Result<Option<VFatDirEntry>> {
+    fn get_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatDirEntry>> {
+        self.chain.seek(SeekFrom::Start(index * 32))?;
         if self.chain.at_end() {
             return Ok(None);
         }
@@ -168,9 +143,27 @@ impl FallibleIterator for RawDirIterator {
     }
 }
 
+
+
+struct RawDirIterator {
+    dir: SharedVFatDir,
+    raw_index: u64,
+}
+
+impl FallibleIterator for RawDirIterator {
+    type Item = VFatDirEntry;
+    type Error = io::Error;
+
+    fn next(&mut self) -> io::Result<Option<VFatDirEntry>> {
+        let entry = self.dir.lock().unwrap().get_raw_entry(self.raw_index)?;
+        self.raw_index += 1;
+        Ok(entry)
+    }
+}
+
 pub struct DirIterator {
     raw_iterator: Enumerate<RawDirIterator>,
-    dir: VFatDir,
+    dir: SharedVFatDir,
 }
 
 fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
@@ -277,7 +270,8 @@ impl FallibleIterator for DirIterator {
                 first_cluster: ((regular_entry.cluster_high as u32) << 16) | (regular_entry.cluster_low as u32),
                 size: regular_entry.size,
             };
-            let ref_guard = self.dir.vfat.borrow().lock_manager().lock(metadata.first_cluster, LockMode::Ref);
+            let dir = self.dir.lock().unwrap();
+            let ref_guard = dir.vfat.borrow().lock_manager().lock(metadata.first_cluster, LockMode::Ref);
             let entry = VFatEntry {
                 name: file_name,
                 metadata,
@@ -293,16 +287,15 @@ impl FallibleIterator for DirIterator {
 }
 
 
-impl Dir for VFatDir {
+impl Dir for SharedVFatDir {
     type Entry = VFatEntry;
     type Iter = DirIterator;
 
     fn entries(&self) -> io::Result<DirIterator> {
-        let chain = ClusterChain::open(self.vfat.clone(), self.first_cluster, LockMode::Read)
-            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "can't open dir for reading"))?;
-
+        let dir = self.lock().unwrap();
         let raw_iterator = RawDirIterator {
-            chain,
+            dir: self.clone(),
+            raw_index: 0,
         };
         Ok(DirIterator {
             raw_iterator: raw_iterator.enumerate(),

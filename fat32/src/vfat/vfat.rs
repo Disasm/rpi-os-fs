@@ -3,7 +3,7 @@ use std::path::Path;
 
 use vfat::{Shared, VFatFile, VFatDir, Error};
 use vfat::{self, BiosParameterBlock};
-use traits::{FileSystem, BlockDevice, Entry};
+use traits::{FileSystem, BlockDevice, Entry, Dir};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::path::Component;
 use vfat::VFatEntry;
@@ -11,6 +11,9 @@ use vfat::logical_block_device::SharedLogicalBlockDevice;
 use std::sync::{Arc, Mutex};
 use vfat::fat::SharedFat;
 use vfat::lock_manager::SharedLockManager;
+use std::sync::Weak;
+use std::collections::HashMap;
+use vfat::dir::SharedVFatDir;
 
 pub struct VFatFileSystem {
     pub(crate) device: SharedLogicalBlockDevice,
@@ -20,6 +23,7 @@ pub struct VFatFileSystem {
     pub(crate) root_dir_cluster: u32,
     fat: SharedFat,
     lock_manager: SharedLockManager,
+    dirs: HashMap<u32, Weak<Mutex<VFatDir>>>,
 }
 
 impl VFatFileSystem {
@@ -37,6 +41,7 @@ impl VFatFileSystem {
                 (ebpb.number_of_fats as u64 * ebpb.logical_sectors_per_fat as u64),
             root_dir_cluster: ebpb.root_directory_cluster,
             lock_manager: SharedLockManager::new(),
+            dirs: HashMap::new(),
         };
         Ok(Shared::new(vfat))
     }
@@ -77,6 +82,15 @@ impl VFatFileSystem {
     pub(crate) fn lock_manager(&self) -> SharedLockManager {
         self.lock_manager.clone()
     }
+
+    pub(crate) fn dir(&mut self, cluster: u32) -> Option<Arc<Mutex<VFatDir>>> {
+        self.dirs.get(&cluster).and_then(|w| w.upgrade())
+    }
+
+    pub(crate) fn put_dir(&mut self, cluster: u32, dir: Arc<Mutex<VFatDir>>) {
+        self.dirs.insert(cluster, Arc::downgrade(&dir));
+    }
+
 }
 
 
@@ -84,14 +98,16 @@ impl Shared<VFatFileSystem> {
 
 
     pub fn into_block_device(self) -> Box<BlockDevice> {
+        let vfat = self.unwrap();
         // TODO: unwrap fat, lock manager
-        Arc::try_unwrap(self.unwrap().device).ok().unwrap().into_inner().unwrap().source
+        vfat.fat.try_unwrap().ok().unwrap();
+        Arc::try_unwrap(vfat.device).ok().unwrap().into_inner().unwrap().source
     }
 }
 
 impl FileSystem for Shared<VFatFileSystem> {
     type File = VFatFile;
-    type Dir = VFatDir;
+    type Dir = SharedVFatDir;
     type Entry = VFatEntry;
 
     fn get_entry<P: AsRef<Path>>(&self, path: P) -> io::Result<Self::Entry> {
@@ -99,21 +115,23 @@ impl FileSystem for Shared<VFatFileSystem> {
         if !path.is_absolute() {
             return Err(io::Error::new(io::ErrorKind::Other, "relative paths are not supported"));
         }
-        unimplemented!();
-//        let mut parent = vfat::VFatObject::root(self.clone());
-//        for component in path.as_ref().components() {
-//            if component != Component::RootDir {
-//                if !parent.is_dir() {
-//                    return Err(io::Error::from(io::ErrorKind::NotFound));
-//                }
-//                let entry = parent.into_dir().unwrap().find(component)?;
-//                parent = self.open_entry(&entry);
-//            }
-//        }
-//        Ok(parent)
+        let mut parent = VFatDir::root(self.clone());
+        let mut iterator = path.components().peekable();
+        while let Some(component) = iterator.next() {
+            if component == Component::RootDir {
+                continue;
+            }
+            let entry = parent.find(component)?;
+            if iterator.peek().is_none() { // last iteration
+                return Ok(entry);
+            } else { // not last iteration
+                parent = entry.open_dir()?;
+            }
+        }
+        unreachable!()
     }
 
-    fn root(&self) -> io::Result<VFatDir> {
+    fn root(&self) -> io::Result<SharedVFatDir> {
         Ok(VFatDir::root(self.clone()))
     }
 
