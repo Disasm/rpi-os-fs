@@ -3,7 +3,7 @@ use std::io;
 
 use vfat::{VFatFileSystem, Shared, VFatEntry};
 use std::mem;
-use std::io::Read;
+use std::io::{Read, Write};
 use fallible_iterator::FallibleIterator;
 use traits::{Dir, Date, Time, DateTime};
 use vfat::metadata::VFatMetadata;
@@ -75,6 +75,8 @@ pub union VFatDirEntry {
 }
 
 impl VFatDirEntry {
+    const SIZE: usize = ::std::mem::size_of::<Self>();
+
     fn is_regular(&self) -> bool {
         self.is_valid() && !self.is_lfn()
     }
@@ -114,7 +116,13 @@ impl VFatDir {
     }
 
     pub fn set_file_size(&mut self, raw_entry_index: u64, size: u32) -> io::Result<()> {
-        unimplemented!()
+        let mut entry = self.get_raw_entry(raw_entry_index)?.ok_or_else(|| io::Error::from(io::ErrorKind::Other))?;
+        if entry.is_regular() {
+            unsafe { entry.regular.size = size; }
+            self.set_raw_entry(raw_entry_index, entry)
+        } else {
+            Err(io::Error::new(io::ErrorKind::Other, "invalid entry type"))
+        }
     }
 
     pub fn get_file_size(&mut self, raw_entry_index: u64) -> io::Result<u32> {
@@ -128,11 +136,11 @@ impl VFatDir {
     }
 
     fn get_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatDirEntry>> {
-        self.chain.seek(SeekFrom::Start(index * 32))?;
+        self.chain.seek(SeekFrom::Start(index * VFatDirEntry::SIZE as u64))?;
         if self.chain.at_end() {
             return Ok(None);
         }
-        let mut buf = [0; 32];
+        let mut buf = [0; VFatDirEntry::SIZE];
         self.chain.read_exact(&mut buf)?;
         let entry: VFatDirEntry = unsafe { mem::transmute(buf) };
         if unsafe { entry.unknown }.first_byte != 0x00 {
@@ -140,6 +148,13 @@ impl VFatDir {
         } else {
             Ok(None)
         }
+    }
+
+    fn set_raw_entry(&mut self, index: u64, entry: VFatDirEntry) -> io::Result<()> {
+        self.chain.seek(SeekFrom::Start(index * VFatDirEntry::SIZE as u64))?;
+
+        let buf: [u8; VFatDirEntry::SIZE] = unsafe { mem::transmute(entry) };
+        self.chain.write_all(&buf)
     }
 }
 
