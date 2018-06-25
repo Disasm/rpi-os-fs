@@ -2,7 +2,7 @@ use std::io;
 use std::path::Path;
 
 use vfat::{Shared, VFatFile, VFatDir, Error};
-use vfat::{self, BiosParameterBlock};
+use vfat::BiosParameterBlock;
 use traits::{FileSystem, BlockDevice, Entry, Dir};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::path::Component;

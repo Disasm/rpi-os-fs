@@ -1,9 +1,8 @@
-use std::ffi::OsStr;
 use std::io;
 
 use vfat::{VFatFileSystem, Shared, VFatEntry};
 use std::mem;
-use std::io::{Read, Write};
+use std::io::{Read, Write, Seek, SeekFrom};
 use fallible_iterator::FallibleIterator;
 use traits::{Dir, Date, Time, DateTime};
 use vfat::metadata::VFatMetadata;
@@ -11,19 +10,15 @@ use vfat::metadata::Attributes;
 use vfat::cluster_chain::ClusterChain;
 use fallible_iterator::Enumerate;
 use vfat::lock_manager::LockMode;
-use vfat::lock_manager::FSObjectGuard;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::io::SeekFrom;
-use std::io::Seek;
-use std::io::ErrorKind;
 
 pub struct VFatDir {
     pub(crate) vfat: Shared<VFatFileSystem>,
-    first_cluster: u32,
-    parent_dir: Option<SharedVFatDir>,
     chain: ClusterChain,
+
+    #[allow(unused)]
+    parent_dir: Option<SharedVFatDir>,
 }
 
 pub type SharedVFatDir = Arc<Mutex<VFatDir>>;
@@ -108,7 +103,6 @@ impl VFatDir {
         let dir = Arc::new(Mutex::new(VFatDir {
             chain,
             vfat: vfat.clone(),
-            first_cluster,
             parent_dir,
         }));
         vfat.borrow_mut().put_dir(first_cluster, Arc::clone(&dir));
@@ -307,7 +301,6 @@ impl Dir for SharedVFatDir {
     type Iter = DirIterator;
 
     fn entries(&self) -> io::Result<DirIterator> {
-        let dir = self.lock().unwrap();
         let raw_iterator = RawDirIterator {
             dir: self.clone(),
             raw_index: 0,

@@ -12,6 +12,7 @@ use chrono::{Datelike, Timelike};
 use std::io::SeekFrom;
 use std::cell::RefCell;
 use vfat::lock_manager::LockMode;
+use vfat::cluster_chain::ClusterChain;
 
 mod mock {
     use std::io::{Read, Write, Seek, Result, SeekFrom};
@@ -414,7 +415,7 @@ fn shared_fs_is_sync_send_static() {
 
 #[test]
 fn mbr_get_partition() {
-    let mut device = load_partition("mock1.fat32.img");
+    let device = load_partition("mock1.fat32.img");
 
     let mut buffer = [0; 512];
     let size = device.read_sector(0, &mut buffer).unwrap();
@@ -428,7 +429,7 @@ fn mbr_get_partition() {
 
 #[test]
 fn block_device_read_by_offset() {
-    let mut device = load_partition("mock1.fat32.img");
+    let device = load_partition("mock1.fat32.img");
 
     let mut buffer = [0; 16];
     device.read_by_offset(0, &mut buffer).unwrap();
@@ -474,35 +475,22 @@ fn vfat_fields() {
     assert_eq!(entry, Some(6));
 }
 
-/*#[test]
-fn vfat_file() {
-    let vfat = vfat_from_resource("mock1.fat32.img");
-    let entry = vfat.open("/").unwrap();
-    let mut file = entry.open_file();
-
-    let mut buffer = [0; 16];
-    file.read_exact(&mut buffer).unwrap();
-    let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
-    assert_eq!(buffer, bytes);
-}
-
 #[test]
-fn vfat_file2() {
+fn vfat_cluster_chain0() {
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let entry = vfat.open("/").unwrap();
-    let mut file = entry.open_file();
+    let mut chain = ClusterChain::open(vfat, 2, LockMode::Read).unwrap();
 
     let mut buffer = [0; 4];
     let bytes = [0x43, 0x53, 0x31, 0x34, 0x30, 0x45, 0x20, 0x20, 0x20, 0x20, 0x20, 0x28, 0x00, 0x00, 0x00, 0x00];
-    file.read_exact(&mut buffer).unwrap();
+    chain.read_exact(&mut buffer).unwrap();
     assert_eq!(buffer, bytes[0..4]);
-    file.read_exact(&mut buffer).unwrap();
+    chain.read_exact(&mut buffer).unwrap();
     assert_eq!(buffer, bytes[4..8]);
-    file.read_exact(&mut buffer).unwrap();
+    chain.read_exact(&mut buffer).unwrap();
     assert_eq!(buffer, bytes[8..12]);
-    file.read_exact(&mut buffer).unwrap();
+    chain.read_exact(&mut buffer).unwrap();
     assert_eq!(buffer, bytes[12..16]);
-}*/
+}
 
 #[test]
 fn vfat_cluster_chain1() {

@@ -1,11 +1,9 @@
 use std::cmp::min;
 use std::io::{self, Write, SeekFrom};
 
-use vfat::{VFatFileSystem, Shared};
 use vfat::cluster_chain::ClusterChain;
 use traits::File;
 use vfat::VFatEntry;
-use vfat::lock_manager::FSObjectGuard;
 use traits::FileOpenMode;
 use vfat::lock_manager::LockMode;
 
@@ -73,7 +71,7 @@ impl io::Write for VFatFile {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.chain.flush();
+        self.chain.flush()?;
         if self.size != self.old_size {
             self.entry.set_file_size(self.size)?;
             self.old_size = self.size;

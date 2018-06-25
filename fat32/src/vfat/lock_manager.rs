@@ -2,6 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::Condvar;
+#[cfg(test)]
+use std::time::Duration;
 
 struct LockManager {
     locks: HashMap<u32, Arc<SharedFSObjectLockInfo>>,
@@ -194,6 +196,7 @@ pub enum LockMode {
     Delete,
 }
 
+#[cfg(test)]
 fn test_locks(locks: &[(LockMode, bool)]) {
     let manager = SharedLockManager::new();
 
@@ -268,15 +271,15 @@ fn test_threaded1() {
         let lock = manager_copy.try_lock(42, LockMode::Write);
         assert!(lock.is_some());
 
-        thread::sleep_ms(200);
+        thread::sleep(Duration::from_millis(200));
     });
 
-    thread::sleep_ms(100);
+    thread::sleep(Duration::from_millis(100));
 
     let lock = manager.try_lock(42, LockMode::Read);
     assert!(lock.is_none());
 
-    let lock = manager.lock(42, LockMode::Read);
+    let _lock = manager.lock(42, LockMode::Read);
 }
 
 #[test]
@@ -290,15 +293,15 @@ fn test_threaded2() {
         let lock = manager_copy.try_lock(42, LockMode::Write);
         assert!(lock.is_some());
 
-        thread::sleep_ms(200);
+        thread::sleep(Duration::from_millis(200));
     });
 
-    thread::sleep_ms(100);
+    thread::sleep(Duration::from_millis(100));
 
     let lock = manager.try_lock(42, LockMode::Read);
     assert!(lock.is_none());
 
-    thread::sleep_ms(200);
+    thread::sleep(Duration::from_millis(200));
 
     let lock = manager.try_lock(42, LockMode::Read);
     assert!(lock.is_some());

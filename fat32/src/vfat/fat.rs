@@ -156,11 +156,6 @@ impl SharedFat {
         Arc::try_unwrap(self.0)
     }
 
-    // TODO: return Result instead of panicking
-    pub fn destroy(self) {
-        Arc::try_unwrap(self.0).ok().unwrap().into_inner().unwrap();
-    }
-
     pub fn new_chain(&mut self) -> io::Result<u32> {
         let mut fat = self.0.lock().unwrap();
         fat.alloc(0xFFFFFFF)

@@ -15,6 +15,8 @@ pub struct VFatEntry {
     pub(crate) metadata: VFatMetadata,
     pub(crate) dir: SharedVFatDir,
     pub(crate) regular_entry_index: u64,
+
+    #[allow(unused)]
     pub(crate) ref_guard: FSObjectGuard,
 }
 
