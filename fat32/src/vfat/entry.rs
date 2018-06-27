@@ -50,9 +50,9 @@ impl Clone for VFatEntry {
 }
 
 impl Entry for VFatEntry {
+    type Metadata = VFatMetadata;
     type File = VFatFile;
     type Dir = SharedVFatDir;
-    type Metadata = VFatMetadata;
 
     fn name(&self) -> &str {
         &self.name
@@ -60,6 +60,14 @@ impl Entry for VFatEntry {
 
     fn metadata(&self) -> &VFatMetadata {
         &self.metadata
+    }
+
+    fn is_file(&self) -> bool {
+        !self.metadata.is_dir()
+    }
+
+    fn is_dir(&self) -> bool {
+        self.metadata.is_dir()
     }
 
     fn open_file(&self, mode: FileOpenMode) -> io::Result<VFatFile> {
@@ -76,13 +84,5 @@ impl Entry for VFatEntry {
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "not a directory"))
         }
-    }
-
-    fn is_file(&self) -> bool {
-        !self.metadata.is_dir()
-    }
-
-    fn is_dir(&self) -> bool {
-        self.metadata.is_dir()
     }
 }
