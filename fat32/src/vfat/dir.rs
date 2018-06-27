@@ -15,10 +15,10 @@ use std::sync::Mutex;
 
 pub struct VFatDir {
     pub(crate) vfat: Shared<VFatFileSystem>,
-    chain: ClusterChain,
+    pub(crate) chain: ClusterChain,
 
     #[allow(unused)]
-    parent_dir: Option<SharedVFatDir>,
+    entry: Option<VFatEntry>,
 }
 
 pub type SharedVFatDir = Arc<Mutex<VFatDir>>;
@@ -72,6 +72,14 @@ pub union VFatDirEntry {
 impl VFatDirEntry {
     const SIZE: usize = ::std::mem::size_of::<Self>();
 
+    fn new_free() -> Self {
+        unsafe {
+            let mut entry: VFatDirEntry = mem::zeroed();
+            entry.unknown.first_byte = 0xe5;
+            entry
+        }
+    }
+
     fn is_regular(&self) -> bool {
         self.is_valid() && !self.is_lfn()
     }
@@ -88,18 +96,14 @@ impl VFatDirEntry {
 
 
 impl VFatDir {
-    pub fn open(vfat: Shared<VFatFileSystem>, first_cluster: u32, parent_dir: Option<SharedVFatDir>) -> SharedVFatDir {
-        if let Some(r) = vfat.borrow_mut().dir(first_cluster) {
-            return r;
-        }
-        let chain = ClusterChain::open(vfat.clone(), first_cluster, LockMode::Write).unwrap();
-        let dir = Arc::new(Mutex::new(VFatDir {
-            chain,
-            vfat: vfat.clone(),
-            parent_dir,
-        }));
-        vfat.borrow_mut().put_dir(first_cluster, Arc::clone(&dir));
-        dir
+    pub fn open(vfat: Shared<VFatFileSystem>, first_cluster: u32, entry: Option<VFatEntry>) -> Option<SharedVFatDir> {
+        ClusterChain::open(vfat.clone(), first_cluster, LockMode::Write).map(|chain| {
+            Arc::new(Mutex::new(VFatDir {
+                chain,
+                vfat: vfat.clone(),
+                entry,
+            }))
+        })
     }
 
     pub fn set_file_size(&mut self, raw_entry_index: u64, size: u32) -> io::Result<()> {
@@ -144,6 +148,12 @@ impl VFatDir {
         self.chain.write_all(&buf)
     }
 
+    pub fn remove_entry(&mut self, entry: &VFatEntry) -> io::Result<()> {
+        for index in entry.first_entry_index..=entry.regular_entry_index {
+            self.set_raw_entry(index, VFatDirEntry::new_free())?;
+        }
+        Ok(())
+    }
 }
 
 
@@ -265,6 +275,10 @@ impl FallibleIterator for DirIterator {
                 }
             };
 
+            if file_name == "." || file_name == ".." {
+                return self.next();
+            }
+
             let metadata = VFatMetadata {
                 attributes: Attributes(regular_entry.attributes),
                 created: DateTime::new(decode_date(regular_entry.created_date)?, decode_time(regular_entry.created_time)?),
@@ -279,6 +293,7 @@ impl FallibleIterator for DirIterator {
                 name: file_name,
                 metadata,
                 dir: self.dir.clone(),
+                first_entry_index: raw_index as u64,
                 regular_entry_index: regular_entry_index as u64,
                 ref_guard,
             };
@@ -303,5 +318,9 @@ impl Dir for SharedVFatDir {
             raw_iterator: raw_iterator.enumerate(),
             dir: self.clone(),
         })
+    }
+
+    fn entry(&self) -> Option<VFatEntry> {
+        self.lock().unwrap().entry.as_ref().map(|e| e.clone())
     }
 }

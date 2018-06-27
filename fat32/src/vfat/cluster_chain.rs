@@ -15,7 +15,7 @@ pub struct ClusterChain {
     previous_cluster: Option<u32>,
     current_cluster: Option<u32>,
     pub(crate) position: u64,
-    guard: FSObjectGuard,
+    pub(crate) guard: FSObjectGuard,
 }
 
 impl ClusterChain {

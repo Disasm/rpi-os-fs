@@ -14,6 +14,7 @@ pub struct VFatEntry {
     pub(crate) name: String,
     pub(crate) metadata: VFatMetadata,
     pub(crate) dir: SharedVFatDir,
+    pub(crate) first_entry_index: u64,
     pub(crate) regular_entry_index: u64,
 
     #[allow(unused)]
@@ -43,6 +44,7 @@ impl Clone for VFatEntry {
             name: self.name.clone(),
             metadata: self.metadata.clone(),
             dir: self.dir.clone(),
+            first_entry_index: self.first_entry_index,
             regular_entry_index: self.regular_entry_index,
             ref_guard,
         }
@@ -56,6 +58,10 @@ impl Entry for VFatEntry {
 
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn parent(&self) -> SharedVFatDir {
+        self.dir.clone()
     }
 
     fn metadata(&self) -> &VFatMetadata {
@@ -80,7 +86,7 @@ impl Entry for VFatEntry {
 
     fn open_dir(&self) -> io::Result<SharedVFatDir> {
         if self.metadata.is_dir() {
-            Ok(self.vfat().get_dir_from_entry(self))
+            self.vfat().get_dir(self.metadata.first_cluster, Some(self.clone())).ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "not a directory"))
         }

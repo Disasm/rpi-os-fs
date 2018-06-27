@@ -282,9 +282,7 @@ fn hash_dir_recursive<P: AsRef<Path>>(
 
     write!(hash, "{}\n", path.display())?;
     let entries = hash_dir(hash, dir)?;
-    if entries.iter().any(|e| Entry::is_dir(e)) {
-        hash.push_str("\n\n");
-    }
+    hash.push_str("\n\n");
 
     for entry in entries {
         if Entry::is_dir(&entry) && entry.name() != "." && entry.name() != ".." {
@@ -616,4 +614,55 @@ fn vfat_file_write2() {
 
     let bytes = [0x46, 0x0A, 0x01, 0x02, 0x03];
     assert_eq!(buffer, bytes);
+}
+
+#[test]
+fn vfat_remove_file() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    vfat.remove(file_path).unwrap();
+
+    assert!(vfat.open_file(file_path, FileOpenMode::Read).is_err());
+}
+
+#[test]
+fn vfat_remove_file2() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    vfat.remove(file_path).unwrap();
+
+    // Remount
+    let partition = vfat.into_block_device();
+    let vfat = VFatFileSystem::from(partition).unwrap();
+
+    assert!(vfat.open_file(file_path, FileOpenMode::Read).is_err());
+}
+
+#[test]
+fn vfat_remove_file_fail() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
+
+    assert!(vfat.remove(file_path).is_err());
+}
+
+#[test]
+fn vfat_remove_dir_fail() {
+    let dir_path = "/rpi3-docs";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    assert!(vfat.remove(dir_path).is_err());
+}
+
+#[test]
+fn vfat_remove_dir() {
+    let dir_path = "/rpi3-docs";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    let dir = vfat.open_dir(dir_path).unwrap();
+
+    vfat.remove_dir_recursively(dir).unwrap();
 }

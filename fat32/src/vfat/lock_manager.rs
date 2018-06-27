@@ -162,7 +162,7 @@ impl FSObjectLockInfo {
     }
 }
 
-struct FSObjectValidGuard {
+pub struct FSObjectValidGuard {
     lock_manager: SharedLockManager,
     cluster: u32,
     lock_info: Arc<SharedFSObjectLockInfo>,
@@ -178,12 +178,15 @@ impl Drop for FSObjectGuard {
 pub struct FSObjectGuard(Option<FSObjectValidGuard>);
 
 impl FSObjectGuard {
-    fn release(&mut self) {
+    pub fn release(&mut self) {
         if let Some(lock_manager) = self.0.as_ref().map(|g| g.lock_manager.clone()) {
             lock_manager.release(self);
         }
     }
-    pub(crate) fn mode(&self) -> Option<LockMode> {
+    pub fn take(&mut self) -> FSObjectGuard {
+        FSObjectGuard(self.0.take())
+    }
+    pub fn mode(&self) -> Option<LockMode> {
         self.0.as_ref().map(|g| g.mode)
     }
 }

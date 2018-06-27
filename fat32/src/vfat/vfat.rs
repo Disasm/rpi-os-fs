@@ -14,6 +14,8 @@ use vfat::lock_manager::SharedLockManager;
 use std::sync::Weak;
 use std::collections::HashMap;
 use vfat::dir::SharedVFatDir;
+use vfat::lock_manager::LockMode;
+use fallible_iterator::FallibleIterator;
 
 pub struct VFatFileSystem {
     pub(crate) device: SharedLogicalBlockDevice,
@@ -83,14 +85,6 @@ impl VFatFileSystem {
         self.lock_manager.clone()
     }
 
-    pub(crate) fn dir(&mut self, cluster: u32) -> Option<Arc<Mutex<VFatDir>>> {
-        self.dirs.get(&cluster).and_then(|w| w.upgrade())
-    }
-
-    pub(crate) fn put_dir(&mut self, cluster: u32, dir: Arc<Mutex<VFatDir>>) {
-        self.dirs.insert(cluster, Arc::downgrade(&dir));
-    }
-
 }
 
 
@@ -104,20 +98,17 @@ impl Shared<VFatFileSystem> {
         Arc::try_unwrap(vfat.device).ok().unwrap().into_inner().unwrap().source
     }
 
-    fn get_dir(&self, first_cluster: u32, parent_dir: Option<SharedVFatDir>) -> SharedVFatDir {
-        if let Some(r) = self.borrow_mut().dir(first_cluster) {
-            return r;
+    pub(crate) fn get_dir(&self, first_cluster: u32, entry: Option<VFatEntry>) -> Option<SharedVFatDir> {
+        if let Some(r) = self.borrow_mut().dirs.get(&first_cluster).and_then(|w| w.upgrade()) {
+            return Some(r);
         }
-        let dir = VFatDir::open(self.clone(), first_cluster, parent_dir);
-        self.borrow_mut().put_dir(first_cluster, Arc::clone(&dir));
-        dir
+        if let Some(dir) = VFatDir::open(self.clone(), first_cluster, entry) {
+            self.borrow_mut().dirs.insert(first_cluster, Arc::downgrade(&dir));
+            Some(dir)
+        } else {
+            None
+        }
     }
-
-    pub fn get_dir_from_entry(&self, entry: &VFatEntry) -> SharedVFatDir {
-        Self::get_dir(self, entry.metadata.first_cluster, Some(entry.dir.clone()))
-    }
-
-
 }
 
 impl FileSystem for Shared<VFatFileSystem> {
@@ -148,7 +139,7 @@ impl FileSystem for Shared<VFatFileSystem> {
 
     fn root(&self) -> io::Result<SharedVFatDir> {
         let first_cluster = self.borrow().root_dir_cluster;
-        Ok(Self::get_dir(self, first_cluster, None))
+        Self::get_dir(self, first_cluster, None).ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))
     }
 
     fn create_file<P: AsRef<Path>>(&self, _path: P) -> io::Result<Self::File> {
@@ -167,17 +158,20 @@ impl FileSystem for Shared<VFatFileSystem> {
         unimplemented!()
     }
 
-    fn remove<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
-        let path = path.as_ref();
-        if !path.is_absolute() {
-            return Err(io::Error::new(io::ErrorKind::Other, "relative paths are not supported"));
-        }
-        let dir = self.open_dir(path)?;
-        if let Some(dir) = Arc::try_unwrap(dir).ok().and_then(|m| m.into_inner().ok()) {
-
-        }
-        let parent_path = path.parent().ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
-        let parent_dir = self.open_dir(parent_path)?;
-        unimplemented!()
+    fn remove_entry(&self, mut entry: VFatEntry) -> io::Result<()> {
+        let lock = if entry.is_file() {
+            entry.ref_guard.take();
+            self.borrow().lock_manager().try_lock(entry.metadata.first_cluster, LockMode::Delete)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "can't get delete lock for file"))?.take()
+        } else {
+            let dir = VFatDir::open(self.clone(), entry.metadata.first_cluster, Some(entry.clone())).ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
+            if dir.entries()?.next()?.is_some() {
+                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+            }
+            let mut dir = dir.lock().unwrap();
+            dir.chain.guard.take()
+        };
+        entry.dir.lock().unwrap().remove_entry(&entry)?;
+        self.borrow_mut().fat.free_chain(entry.metadata.first_cluster)
     }
 }

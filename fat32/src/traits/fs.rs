@@ -39,6 +39,8 @@ pub trait Dir: Sized {
             Err(io::Error::from(io::ErrorKind::NotFound))
         }
     }
+
+    fn entry(&self) -> Option<Self::Entry>;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,6 +63,16 @@ pub trait Entry: Sized {
 
     /// The metadata associated with the entry.
     fn metadata(&self) -> &Self::Metadata;
+
+    fn parent(&self) -> Self::Dir;
+
+    fn path(&self) -> String {
+        if let Some(parent_entry) = self.parent().entry() {
+            format!("{}/{}", parent_entry.path(), self.name())
+        } else {
+            format!("/{}", self.name())
+        }
+    }
 
     /// Returns `true` if this entry is a file or `false` otherwise.
     fn is_file(&self) -> bool {
@@ -87,7 +99,7 @@ pub trait FileSystem: Sized {
     type File: File;
 
     /// The type of directories in this file system.
-    type Dir: Dir;
+    type Dir: Dir<Entry = Self::Entry>;
 
     type Entry: Entry<File = Self::File, Dir = Self::Dir>;
 
@@ -200,5 +212,30 @@ pub trait FileSystem: Sized {
     /// error kind of `Other` is returned.
     ///
     /// All other error values are implementation defined.
-    fn remove<P: AsRef<Path>>(&self, path: P) -> io::Result<()>;
+    fn remove<P: AsRef<Path>>(&self, path: P) -> io::Result<()> {
+        let entry = self.get_entry(path)?;
+        self.remove_entry(entry)
+    }
+
+    fn remove_entry(&self, entry: Self::Entry) -> io::Result<()>;
+
+    fn remove_dir_recursively(&self, dir: Self::Dir) -> io::Result<()> {
+        if dir.entry().is_none() {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "can't remove root dir"));
+        }
+        let mut iterator = dir.entries()?;
+        while let Some(entry) = iterator.next()? {
+            if entry.is_dir() {
+                let dir = entry.open_dir()?;
+                drop(entry);
+                self.remove_dir_recursively(dir)?;
+            } else {
+                self.remove_entry(entry)?;
+            }
+        }
+        let entry = dir.entry().unwrap();
+        drop(dir);
+        self.remove_entry(entry);
+        Ok(())
+    }
 }
