@@ -60,12 +60,12 @@ impl Entry for VFatEntry {
         &self.name
     }
 
-    fn parent(&self) -> SharedVFatDir {
-        self.dir.clone()
-    }
-
     fn metadata(&self) -> &VFatMetadata {
         &self.metadata
+    }
+
+    fn parent(&self) -> SharedVFatDir {
+        self.dir.clone()
     }
 
     fn is_file(&self) -> bool {
