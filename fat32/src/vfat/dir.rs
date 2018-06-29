@@ -41,17 +41,68 @@ pub struct VFatRegularDirEntry {
     size: u32,
 }
 
+impl VFatRegularDirEntry {
+    fn from(name: &str, ext: &str, metadata: &VFatMetadata) -> Self {
+        unimplemented!()
+    }
+
+    fn checksum(&self) -> u8 {
+        let mut sum = 0u8;
+        for b in self.file_name.iter().chain(self.file_ext.iter()) {
+            sum = (sum >> 1) + ((sum & 1) << 7);  /* rotate */
+            sum += b;
+        }
+        sum
+    }
+
+    fn as_union(&self) -> &VFatDirEntry {
+        unsafe { mem::transmute(self) }
+    }
+}
+
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
 pub struct VFatLfnDirEntry {
     sequence_number: u8,
     name: [u16; 5],
     attributes: u8,
-    entry_type: u8,
+    _always_zero: u8,
     checksum: u8,
     name2: [u16; 6],
-    _always_zero: [u8; 2],
+    _always_zero2: [u8; 2],
     name3: [u16; 2],
+}
+
+impl VFatLfnDirEntry {
+    fn as_union(&self) -> &VFatDirEntry {
+        unsafe { mem::transmute(self) }
+    }
+}
+
+fn create_lfn_entries(file_name: &str, checksum: u8) -> Vec<VFatLfnDirEntry> {
+    assert!((file_name.len() < 255) && (file_name.len() > 0));
+    let utf16_file_name: Vec<_> = file_name.encode_utf16().collect();
+    utf16_file_name.chunks(13).enumerate().map(|(index, chunk)| {
+        let mut part = [0xffffu16; 13];
+        part[..chunk.len()].copy_from_slice(&chunk);
+        if chunk.len() < part.len() {
+            part[chunk.len()] = 0;
+        }
+
+        let mut entry: VFatLfnDirEntry = unsafe { mem::zeroed() };
+        entry.attributes = 0x0f;
+        entry.checksum = checksum;
+        entry.sequence_number = index as u8 + 1;
+        entry.name.copy_from_slice(&part[..5]);
+        entry.name2.copy_from_slice(&part[5..11]);
+        entry.name3.copy_from_slice(&part[11..]);
+        entry
+    }).rev().enumerate().map(|(index, mut entry)| {
+        if index == 0 {
+            entry.sequence_number |= 0x40;
+        }
+        entry
+    }).collect()
 }
 
 #[repr(C, packed)]
@@ -110,7 +161,7 @@ impl VFatDir {
         let mut entry = self.get_raw_entry(raw_entry_index)?.ok_or_else(|| io::Error::from(io::ErrorKind::Other))?;
         if entry.is_regular() {
             unsafe { entry.regular.size = size; }
-            self.set_raw_entry(raw_entry_index, entry)
+            self.set_raw_entry(raw_entry_index, &entry)
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "invalid entry type"))
         }
@@ -141,17 +192,57 @@ impl VFatDir {
         }
     }
 
-    fn set_raw_entry(&mut self, index: u64, entry: VFatDirEntry) -> io::Result<()> {
+    fn set_raw_entry(&mut self, index: u64, entry: &VFatDirEntry) -> io::Result<()> {
         self.chain.seek(SeekFrom::Start(index * VFatDirEntry::SIZE as u64))?;
 
-        let buf: [u8; VFatDirEntry::SIZE] = unsafe { mem::transmute(entry) };
-        self.chain.write_all(&buf)
+        assert_eq!(VFatDirEntry::SIZE, mem::size_of::<VFatDirEntry>());
+        let buf: &[u8; VFatDirEntry::SIZE] = unsafe { mem::transmute(entry) };
+        self.chain.write_all(buf)
     }
 
     pub fn remove_entry(&mut self, entry: &VFatEntry) -> io::Result<()> {
         for index in entry.first_entry_index..=entry.regular_entry_index {
-            self.set_raw_entry(index, VFatDirEntry::new_free())?;
+            self.set_raw_entry(index, &VFatDirEntry::new_free())?;
         }
+        Ok(())
+    }
+
+    pub fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<()> {
+        if (file_name.len() >= 255) || (file_name.len() == 0) {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "incorrent file name length"));
+        }
+        let utf16_file_name: Vec<_> = file_name.encode_utf16().collect();
+        let total_entry_count = utf16_file_name.len() / 13 + 1;
+
+        let mut free_count: u64 = 0;
+        let mut index = 0;
+        loop {
+            if let Some(entry) = self.get_raw_entry(index)? {
+                if entry.is_valid() {
+                    free_count = 0;
+                } else {
+                    free_count += 1;
+                }
+
+                if free_count == total_entry_count as u64 {
+                    break;
+                }
+            } else {
+                break;
+            }
+            index += 1;
+        }
+        let alloc_index = index - free_count;
+        let short_file_name = format!("_~{}", alloc_index);
+        let regular_entry = VFatRegularDirEntry::from(&short_file_name, "", metadata);
+        let lfn_entries = create_lfn_entries(file_name, regular_entry.checksum());
+        assert_eq!(lfn_entries.len() + 1, total_entry_count);
+
+        for (i, entry) in lfn_entries.iter().enumerate() {
+            self.set_raw_entry(alloc_index + i as u64, entry.as_union())?;
+        }
+        self.set_raw_entry(alloc_index + lfn_entries.len() as u64, regular_entry.as_union())?;
+
         Ok(())
     }
 }
