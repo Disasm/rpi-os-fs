@@ -1,6 +1,5 @@
 use traits::{Entry, Metadata};
 use vfat::metadata::VFatMetadata;
-use vfat::VFatDir;
 use std::io;
 use vfat::lock_manager::FSObjectGuard;
 use vfat::VFatFile;
@@ -9,13 +8,13 @@ use vfat::Shared;
 use vfat::VFatFileSystem;
 use traits::FileOpenMode;
 use vfat::dir::SharedVFatDir;
+use std::ops::RangeInclusive;
 
 pub struct VFatEntry {
     pub(crate) name: String,
     pub(crate) metadata: VFatMetadata,
     pub(crate) dir: SharedVFatDir,
-    pub(crate) first_entry_index: u64,
-    pub(crate) regular_entry_index: u64,
+    pub(crate) dir_entry_index_range: RangeInclusive<u64>,
 
     #[allow(unused)]
     pub(crate) ref_guard: FSObjectGuard,
@@ -23,16 +22,16 @@ pub struct VFatEntry {
 
 impl VFatEntry {
     pub(crate) fn vfat(&self) -> Shared<VFatFileSystem> {
-        self.dir.lock().unwrap().vfat.clone()
+        self.dir.0.lock().unwrap().vfat.clone()
     }
 
     pub(crate) fn set_file_size(&mut self, size: u32) -> io::Result<()> {
         assert!(!self.metadata.is_dir());
-        self.dir.lock().unwrap().set_file_size(self.regular_entry_index, size)
+        self.dir.0.lock().unwrap().set_file_size(self.dir_entry_index_range.end, size)
     }
 
     pub(crate) fn current_file_size(&self) -> io::Result<u32> {
-        self.dir.lock().unwrap().get_file_size(self.regular_entry_index)
+        self.dir.0.lock().unwrap().get_file_size(self.dir_entry_index_range.end)
     }
 }
 
@@ -44,8 +43,7 @@ impl Clone for VFatEntry {
             name: self.name.clone(),
             metadata: self.metadata.clone(),
             dir: self.dir.clone(),
-            first_entry_index: self.first_entry_index,
-            regular_entry_index: self.regular_entry_index,
+            dir_entry_index_range: self.dir_entry_index_range.clone(),
             ref_guard,
         }
     }
@@ -86,7 +84,7 @@ impl Entry for VFatEntry {
 
     fn open_dir(&self) -> io::Result<SharedVFatDir> {
         if self.metadata.is_dir() {
-            self.vfat().get_dir(self.metadata.first_cluster, Some(self.clone())).ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))
+            self.vfat().get_dir(self.metadata.first_cluster, Some(self.clone())).ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "open_dir failed"))
         } else {
             Err(io::Error::new(io::ErrorKind::Other, "not a directory"))
         }

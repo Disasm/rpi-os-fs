@@ -8,10 +8,11 @@ use traits::{Dir, Date, Time, DateTime};
 use vfat::metadata::VFatMetadata;
 use vfat::metadata::Attributes;
 use vfat::cluster_chain::ClusterChain;
-use fallible_iterator::Enumerate;
 use vfat::lock_manager::LockMode;
 use std::sync::Arc;
 use std::sync::Mutex;
+use chrono::{Datelike, Timelike};
+use std::ops::RangeInclusive;
 
 pub struct VFatDir {
     pub(crate) vfat: Shared<VFatFileSystem>,
@@ -21,7 +22,16 @@ pub struct VFatDir {
     entry: Option<VFatEntry>,
 }
 
-pub type SharedVFatDir = Arc<Mutex<VFatDir>>;
+#[derive(Clone)]
+pub struct SharedVFatDir(pub(crate) Arc<Mutex<VFatDir>>);
+
+#[derive(Debug)]
+struct VFatRawDirEntry {
+    name: String,
+    short_name: String,
+    metadata: VFatMetadata,
+    entry_index_range: RangeInclusive<u64>,
+}
 
 #[repr(C, packed)]
 #[derive(Copy, Clone, Debug)]
@@ -41,16 +51,45 @@ pub struct VFatRegularDirEntry {
     size: u32,
 }
 
+fn date_to_vfat_repr(date: &Date) -> u16 {
+    if date.year() < 1980 || date.year() > 2107 {
+        return 0;
+    }
+    (((date.year() as u32 - 1980) << 9) | (date.month() << 5) | date.day()) as u16
+}
+
+fn time_to_vfat_repr(time: &Time) -> u16 {
+    ((time.hour() << 11) | (time.minute() << 5) | (time.second() / 2)) as u16
+}
+
 impl VFatRegularDirEntry {
     fn from(name: &str, ext: &str, metadata: &VFatMetadata) -> Self {
-        unimplemented!()
+        let mut file_name = [0; 8];
+        file_name[..name.len()].copy_from_slice(name.as_bytes());
+        let mut file_ext = [0; 3];
+        file_ext[..ext.len()].copy_from_slice(ext.as_bytes());
+        Self {
+            file_name,
+            file_ext,
+            attributes: metadata.attributes.0,
+            _reserved: 0,
+            created_time_hundredths: 0,
+            created_time: time_to_vfat_repr(&metadata.created.time()),
+            created_date: date_to_vfat_repr(&metadata.created.date()),
+            accessed_date: date_to_vfat_repr(&metadata.accessed),
+            cluster_high: (metadata.first_cluster >> 16) as u16,
+            cluster_low: metadata.first_cluster as u16,
+            modified_time: time_to_vfat_repr(&metadata.modified.time()),
+            modified_date: date_to_vfat_repr(&metadata.modified.date()),
+            size: metadata.size,
+        }
     }
 
     fn checksum(&self) -> u8 {
         let mut sum = 0u8;
         for b in self.file_name.iter().chain(self.file_ext.iter()) {
             sum = (sum >> 1) + ((sum & 1) << 7);  /* rotate */
-            sum += b;
+            sum = sum.wrapping_add(*b);
         }
         sum
     }
@@ -149,11 +188,11 @@ impl VFatDirEntry {
 impl VFatDir {
     pub fn open(vfat: Shared<VFatFileSystem>, first_cluster: u32, entry: Option<VFatEntry>) -> Option<SharedVFatDir> {
         ClusterChain::open(vfat.clone(), first_cluster, LockMode::Write).map(|chain| {
-            Arc::new(Mutex::new(VFatDir {
+            SharedVFatDir(Arc::new(Mutex::new(VFatDir {
                 chain,
                 vfat: vfat.clone(),
                 entry,
-            }))
+            })))
         })
     }
 
@@ -201,18 +240,18 @@ impl VFatDir {
     }
 
     pub fn remove_entry(&mut self, entry: &VFatEntry) -> io::Result<()> {
-        for index in entry.first_entry_index..=entry.regular_entry_index {
+        for index in entry.dir_entry_index_range.clone() {
             self.set_raw_entry(index, &VFatDirEntry::new_free())?;
         }
         Ok(())
     }
 
-    pub fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<()> {
+    fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatRawDirEntry> {
         if (file_name.len() >= 255) || (file_name.len() == 0) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "incorrent file name length"));
         }
         let utf16_file_name: Vec<_> = file_name.encode_utf16().collect();
-        let total_entry_count = utf16_file_name.len() / 13 + 1;
+        let total_entry_count = (utf16_file_name.len() + 12) / 13 + 1;
 
         let mut free_count: u64 = 0;
         let mut index = 0;
@@ -243,67 +282,22 @@ impl VFatDir {
         }
         self.set_raw_entry(alloc_index + lfn_entries.len() as u64, regular_entry.as_union())?;
 
-        Ok(())
-    }
-}
-
-
-
-struct RawDirIterator {
-    dir: SharedVFatDir,
-    raw_index: u64,
-}
-
-impl FallibleIterator for RawDirIterator {
-    type Item = VFatDirEntry;
-    type Error = io::Error;
-
-    fn next(&mut self) -> io::Result<Option<VFatDirEntry>> {
-        let entry = self.dir.lock().unwrap().get_raw_entry(self.raw_index)?;
-        self.raw_index += 1;
+        let entry = VFatRawDirEntry {
+            name: file_name.to_string(),
+            short_name: short_file_name,
+            metadata: metadata.clone(),
+            entry_index_range: alloc_index..=(alloc_index + lfn_entries.len() as u64),
+        };
         Ok(entry)
     }
-}
 
-pub struct DirIterator {
-    raw_iterator: Enumerate<RawDirIterator>,
-    dir: SharedVFatDir,
-}
+    fn next_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatRawDirEntry>> {
+        let mut raw_iterator = RawDirIterator {
+            dir: self,
+            raw_index: index,
+        };
 
-fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
-    let data = if let Some(index) = bytes.iter().position(|x| *x == 0x00 || *x == 0x20) {
-        &bytes[..index]
-    } else {
-        bytes
-    };
-
-    if !data.iter().all(|c| c.is_ascii()) {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "filename contains non-ascii characters"));
-    }
-
-    ::std::str::from_utf8(data).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "can't parse filename as UTF-8"))
-}
-
-fn decode_date(raw_date: u16) -> io::Result<Date> {
-    let year = (raw_date >> 9) + 1980;
-    let month = (raw_date >> 5) & 0b1111;
-    let second = raw_date & 0b11111;
-    Date::from_ymd_opt(year as i32, month as u32, second as u32).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid date"))
-}
-
-fn decode_time(raw_time: u16) -> io::Result<Time> {
-    let hour = raw_time >> 11;
-    let minute = (raw_time >> 5) & 0b11_11_11;
-    let second = 2 * (raw_time & 0b11111);
-    Time::from_hms_opt(hour as u32, minute as u32, second as u32).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid time"))
-}
-
-impl FallibleIterator for DirIterator {
-    type Item = VFatEntry;
-    type Error = io::Error;
-
-    fn next(&mut self) -> io::Result<Option<VFatEntry>> {
-        if let Some((raw_index, entry)) = self.raw_iterator.find(|&(_, ref entry)| entry.is_valid())? {
+        if let Some((raw_index, entry)) = raw_iterator.find(|&(_, ref entry)| entry.is_valid())? {
             let (long_name, regular_entry, regular_entry_index) = if entry.is_lfn() {
                 let lfn_entry = unsafe { entry.long_filename };
                 if lfn_entry.sequence_number & 0x40 == 0 {
@@ -313,7 +307,7 @@ impl FallibleIterator for DirIterator {
 
                 let mut entries = vec![lfn_entry];
                 for i in 1..lfn_entries_count {
-                    if let Some((_, entry)) = self.raw_iterator.next()? {
+                    if let Some((_, entry)) = raw_iterator.next()? {
                         if entry.is_lfn() {
                             let lfn_entry = unsafe { entry.long_filename };
                             let lfn_entry_index = lfn_entry.sequence_number & 0x1F;
@@ -340,7 +334,7 @@ impl FallibleIterator for DirIterator {
                 }
                 let long_name = String::from_utf16(&filename_buf).ok();
 
-                let (next_entry_index, next_entry) = self.raw_iterator.next()?.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "can't find regular entry after long entry"))?;
+                let (next_entry_index, next_entry) = raw_iterator.next()?.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "can't find regular entry after long entry"))?;
                 if !next_entry.is_regular() {
                     return Err(io::Error::new(io::ErrorKind::InvalidData, "next entry is not regular"));
                 }
@@ -351,12 +345,7 @@ impl FallibleIterator for DirIterator {
             };
 
             let regular_entry = unsafe { regular_entry.regular };
-            if (regular_entry.attributes & 0x08) != 0 { // skip volume id
-                return self.next();
-            }
-            let file_name = if let Some(f) = long_name {
-                f
-            } else {
+            let short_file_name = {
                 let file_name = bytes_to_short_filename(&regular_entry.file_name)?;
                 let file_ext = bytes_to_short_filename(&regular_entry.file_ext)?;
                 if file_ext.len() > 0 {
@@ -365,32 +354,100 @@ impl FallibleIterator for DirIterator {
                     file_name.to_string()
                 }
             };
-
-            if file_name == "." || file_name == ".." {
-                return self.next();
-            }
-
+            let file_name = long_name.unwrap_or_else(|| short_file_name.clone());
             let metadata = VFatMetadata {
                 attributes: Attributes(regular_entry.attributes),
-                created: DateTime::new(decode_date(regular_entry.created_date)?, decode_time(regular_entry.created_time)?),
-                accessed: decode_date(regular_entry.accessed_date)?,
-                modified: DateTime::new(decode_date(regular_entry.modified_date)?, decode_time(regular_entry.modified_time)?),
+                created: DateTime::new(decode_date(regular_entry.created_date), decode_time(regular_entry.created_time)?),
+                accessed: decode_date(regular_entry.accessed_date),
+                modified: DateTime::new(decode_date(regular_entry.modified_date), decode_time(regular_entry.modified_time)?),
                 first_cluster: ((regular_entry.cluster_high as u32) << 16) | (regular_entry.cluster_low as u32),
                 size: regular_entry.size,
             };
-            let dir = self.dir.lock().unwrap();
-            let ref_guard = dir.vfat.borrow().lock_manager().lock(metadata.first_cluster, LockMode::Ref);
-            let entry = VFatEntry {
+            let entry = VFatRawDirEntry {
                 name: file_name,
+                short_name: short_file_name,
                 metadata,
-                dir: self.dir.clone(),
-                first_entry_index: raw_index as u64,
-                regular_entry_index: regular_entry_index as u64,
-                ref_guard,
+                entry_index_range: (raw_index as u64)..=(regular_entry_index as u64),
             };
             Ok(Some(entry))
         } else {
             Ok(None)
+        }
+    }
+}
+
+
+
+struct RawDirIterator<'a> {
+    dir: &'a mut VFatDir,
+    raw_index: u64,
+}
+
+impl<'a> FallibleIterator for RawDirIterator<'a> {
+    type Item = (u64, VFatDirEntry);
+    type Error = io::Error;
+
+    fn next(&mut self) -> io::Result<Option<(u64, VFatDirEntry)>> {
+        let current_index = self.raw_index;
+        let entry = self.dir.get_raw_entry(self.raw_index)?;
+        self.raw_index += 1;
+        Ok(entry.map(|entry| (current_index, entry)))
+    }
+}
+
+pub struct DirIterator {
+    index: u64,
+    dir: SharedVFatDir,
+}
+
+fn bytes_to_short_filename(bytes: &[u8]) -> io::Result<&str> {
+    let data = if let Some(index) = bytes.iter().position(|x| *x == 0x00 || *x == 0x20) {
+        &bytes[..index]
+    } else {
+        bytes
+    };
+
+    if !data.iter().all(|c| c.is_ascii()) {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "filename contains non-ascii characters"));
+    }
+
+    ::std::str::from_utf8(data).map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "can't parse filename as UTF-8"))
+}
+
+fn decode_date(raw_date: u16) -> Date {
+    let year = (raw_date >> 9) + 1980;
+    let month = (raw_date >> 5) & 0b1111;
+    let second = raw_date & 0b11111;
+    Date::from_ymd_opt(year as i32, month as u32, second as u32).unwrap_or_else(|| Date::from_ymd(1980, 1, 1))
+}
+
+fn decode_time(raw_time: u16) -> io::Result<Time> {
+    let hour = raw_time >> 11;
+    let minute = (raw_time >> 5) & 0b11_11_11;
+    let second = 2 * (raw_time & 0b11111);
+    Time::from_hms_opt(hour as u32, minute as u32, second as u32).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid time"))
+}
+
+impl FallibleIterator for DirIterator {
+    type Item = VFatEntry;
+    type Error = io::Error;
+
+    fn next(&mut self) -> io::Result<Option<VFatEntry>> {
+        let vfat = self.dir.0.lock().unwrap().vfat.clone();
+        loop {
+            if let Some(raw_entry) = self.dir.0.lock().unwrap().next_raw_entry(self.index)? {
+                self.index = raw_entry.entry_index_range.end + 1;
+                if raw_entry.metadata.attributes.is_volume_id() { // skip volume id
+                    continue;
+                }
+                if raw_entry.name == "." || raw_entry.name == ".." {
+                    continue;
+                }
+                let entry = self.dir.convert_entry(raw_entry, vfat);
+                return Ok(Some(entry));
+            } else {
+                return Ok(None);
+            }
         }
     }
 }
@@ -401,17 +458,33 @@ impl Dir for SharedVFatDir {
     type Iter = DirIterator;
 
     fn entries(&self) -> io::Result<DirIterator> {
-        let raw_iterator = RawDirIterator {
-            dir: self.clone(),
-            raw_index: 0,
-        };
         Ok(DirIterator {
-            raw_iterator: raw_iterator.enumerate(),
+            index: 0,
             dir: self.clone(),
         })
     }
 
     fn entry(&self) -> Option<VFatEntry> {
-        self.lock().unwrap().entry.as_ref().map(|e| e.clone())
+        self.0.lock().unwrap().entry.as_ref().map(|e| e.clone())
+    }
+}
+
+impl SharedVFatDir {
+    fn convert_entry(&self, raw_entry: VFatRawDirEntry, vfat: Shared<VFatFileSystem>) -> VFatEntry {
+        let ref_guard = vfat.borrow().lock_manager().lock(raw_entry.metadata.first_cluster, LockMode::Ref);
+        VFatEntry {
+            name: raw_entry.name,
+            metadata: raw_entry.metadata,
+            dir: self.clone(),
+            dir_entry_index_range: raw_entry.entry_index_range,
+            ref_guard,
+        }
+    }
+
+    pub fn create_entry(&self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatEntry> {
+        let mut dir = self.0.lock().unwrap();
+        let raw_entry = dir.create_entry(file_name, metadata)?;
+
+        Ok(self.convert_entry(raw_entry, dir.vfat.clone()))
     }
 }

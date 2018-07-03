@@ -5,6 +5,14 @@ use traits::{Date, DateTime, Metadata};
 pub(crate) struct Attributes(pub(crate) u8);
 
 impl Attributes {
+    pub fn new(is_dir: bool) -> Self {
+        if is_dir {
+            Attributes(0x10)
+        } else {
+            Attributes(0x00)
+        }
+    }
+
     pub fn is_read_only(&self) -> bool {
         (self.0 & 0x01) != 0
     }
@@ -15,6 +23,10 @@ impl Attributes {
 
     pub fn is_dir(&self) -> bool {
         (self.0 & 0x10) != 0
+    }
+
+    pub fn is_volume_id(&self) -> bool {
+        (self.0 & 0x08) != 0
     }
 }
 

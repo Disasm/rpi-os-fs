@@ -182,6 +182,8 @@ impl SharedFat {
         fat.free_chain(first_cluster)
     }
 
+    // TODO: add set_len to File
+    #[allow(dead_code)]
     pub fn truncate_chain(&mut self, last_cluster: u32) -> io::Result<()> {
         let mut fat = self.0.lock().unwrap();
         match fat.get(last_cluster)?.status() {

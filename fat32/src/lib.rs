@@ -4,6 +4,9 @@
 #![feature(use_nested_groups)]
 #![feature(dotdoteq_in_patterns)]
 #![feature(inclusive_range_syntax)]
+#![feature(inclusive_range)]
+
+#![deny(unused_must_use)]
 
 #[cfg(not(target_endian="little"))]
 compile_error!("only little endian platforms supported");

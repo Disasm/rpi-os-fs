@@ -644,7 +644,7 @@ fn vfat_remove_file2() {
 fn vfat_remove_file_fail() {
     let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
     let vfat = vfat_from_resource("mock1.fat32.img");
-    let file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
+    let _file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
 
     assert!(vfat.remove(file_path).is_err());
 }
@@ -665,4 +665,25 @@ fn vfat_remove_dir() {
     let dir = vfat.open_dir(dir_path).unwrap();
 
     vfat.remove_dir_recursively(dir).unwrap();
+}
+
+#[test]
+fn vfat_create_file() {
+    let file_path = "/rpi3-docs/test.txt";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    let bytes = [1, 0, 2, 3];
+
+    let mut file = vfat.create_file(file_path).unwrap();
+    file.write_all(&bytes).unwrap();
+    drop(file);
+
+    // Remount
+    let partition = vfat.into_block_device();
+    let vfat = VFatFileSystem::from(partition).unwrap();
+
+    let mut file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).unwrap();
+    assert_eq!(buf, bytes);
 }

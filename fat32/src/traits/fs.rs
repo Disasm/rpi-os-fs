@@ -223,19 +223,21 @@ pub trait FileSystem: Sized {
         if dir.entry().is_none() {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, "can't remove root dir"));
         }
-        let mut iterator = dir.entries()?;
-        while let Some(entry) = iterator.next()? {
-            if entry.is_dir() {
-                let dir = entry.open_dir()?;
-                drop(entry);
-                self.remove_dir_recursively(dir)?;
-            } else {
-                self.remove_entry(entry)?;
+        {
+            let mut iterator = dir.entries()?;
+            while let Some(entry) = iterator.next()? {
+                if entry.is_dir() {
+                    let dir = entry.open_dir()?;
+                    drop(entry);
+                    self.remove_dir_recursively(dir)?;
+                } else {
+                    self.remove_entry(entry)?;
+                }
             }
         }
         let entry = dir.entry().unwrap();
         drop(dir);
-        self.remove_entry(entry);
+        self.remove_entry(entry)?;
         Ok(())
     }
 }

@@ -16,6 +16,9 @@ use std::collections::HashMap;
 use vfat::dir::SharedVFatDir;
 use vfat::lock_manager::LockMode;
 use fallible_iterator::FallibleIterator;
+use vfat::metadata::VFatMetadata;
+use vfat::metadata::Attributes;
+use traits::FileOpenMode;
 
 pub struct VFatFileSystem {
     pub(crate) device: SharedLogicalBlockDevice,
@@ -100,10 +103,10 @@ impl Shared<VFatFileSystem> {
 
     pub(crate) fn get_dir(&self, first_cluster: u32, entry: Option<VFatEntry>) -> Option<SharedVFatDir> {
         if let Some(r) = self.borrow_mut().dirs.get(&first_cluster).and_then(|w| w.upgrade()) {
-            return Some(r);
+            return Some(SharedVFatDir(r));
         }
         if let Some(dir) = VFatDir::open(self.clone(), first_cluster, entry) {
-            self.borrow_mut().dirs.insert(first_cluster, Arc::downgrade(&dir));
+            self.borrow_mut().dirs.insert(first_cluster, Arc::downgrade(&dir.0));
             Some(dir)
         } else {
             None
@@ -139,11 +142,29 @@ impl FileSystem for Shared<VFatFileSystem> {
 
     fn root(&self) -> io::Result<SharedVFatDir> {
         let first_cluster = self.borrow().root_dir_cluster;
-        Self::get_dir(self, first_cluster, None).ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))
+        Self::get_dir(self, first_cluster, None).ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "can't get root dir"))
     }
 
-    fn create_file<P: AsRef<Path>>(&self, _path: P) -> io::Result<Self::File> {
-        unimplemented!()
+    fn create_file<P: AsRef<Path>>(&self, path: P) -> io::Result<Self::File> {
+        let path = path.as_ref();
+        if let Some(parent_dir) = path.parent() {
+            let dir = self.open_dir(parent_dir)?;
+            let file_name = path.file_name().unwrap().to_str().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+            let current_time = ::chrono::offset::Local::now().naive_local();
+            let first_cluster = self.borrow_mut().fat.new_chain()?;
+            let metadata = VFatMetadata {
+                attributes: Attributes::new(false),
+                created: current_time,
+                accessed: current_time.date(),
+                modified: current_time,
+                first_cluster,
+                size: 0,
+            };
+            let entry = dir.create_entry(file_name, &metadata)?;
+            entry.open_file(FileOpenMode::Write)
+        } else {
+            Err(io::Error::new(io::ErrorKind::AlreadyExists, "invalid file path"))
+        }
     }
 
     fn create_dir<P>(&self, _path: P) -> io::Result<Self::Dir>
@@ -159,19 +180,20 @@ impl FileSystem for Shared<VFatFileSystem> {
     }
 
     fn remove_entry(&self, mut entry: VFatEntry) -> io::Result<()> {
-        let lock = if entry.is_file() {
+        let _lock = if entry.is_file() {
             entry.ref_guard.take();
             self.borrow().lock_manager().try_lock(entry.metadata.first_cluster, LockMode::Delete)
                 .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "can't get delete lock for file"))?.take()
         } else {
-            let dir = VFatDir::open(self.clone(), entry.metadata.first_cluster, Some(entry.clone())).ok_or_else(|| io::Error::from(io::ErrorKind::PermissionDenied))?;
+            let dir = VFatDir::open(self.clone(), entry.metadata.first_cluster, Some(entry.clone()))
+                .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "failed to lock dir before deleting it"))?;
             if dir.entries()?.next()?.is_some() {
-                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "can't remove non-empty dir"));
             }
-            let mut dir = dir.lock().unwrap();
+            let mut dir = dir.0.lock().unwrap();
             dir.chain.guard.take()
         };
-        entry.dir.lock().unwrap().remove_entry(&entry)?;
+        entry.dir.0.lock().unwrap().remove_entry(&entry)?;
         self.borrow_mut().fat.free_chain(entry.metadata.first_cluster)
     }
 }
