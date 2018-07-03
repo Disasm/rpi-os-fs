@@ -8,26 +8,6 @@ use std::ops::{Deref, DerefMut};
 #[derive(Debug)]
 pub struct Shared<T>(imp::Inner<T>);
 
-#[cfg(target_os = "ros")]
-mod imp {
-    use std::rc::Rc;
-    use std::sync::Mutex;
-    use super::Shared;
-
-    pub type Inner<T> = Rc<Mutex<T>>;
-
-    pub fn new<T>(val: T) -> Inner<T> {
-        Rc::new(Mutex::new(val))
-    }
-
-    // Without an enabled MMU/cache, the processor faults on atomic accesses.
-    // As such, use an `Rc` instead of an `Arc` when running on ROS until
-    // multithreading, the MMU, and caches are enabled.
-    unsafe impl<T> Sync for Shared<T> {}
-    unsafe impl<T> Send for Shared<T> {}
-}
-
-#[cfg(not(target_os = "ros"))]
 mod imp {
     use std::sync::{Arc, Mutex};
 
@@ -60,7 +40,6 @@ impl<T> Shared<T> {
         self.0.lock().expect("all okay")
     }
 
-    #[cfg(not(target_os = "ros"))]
     pub fn unwrap(self) -> T {
         ::std::sync::Arc::try_unwrap(self.0).map_err(|_|()).unwrap().into_inner().unwrap()
     }
