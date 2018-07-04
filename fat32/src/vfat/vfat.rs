@@ -167,10 +167,30 @@ impl FileSystem for Shared<VFatFileSystem> {
         }
     }
 
-    fn create_dir<P>(&self, _path: P) -> io::Result<Self::Dir>
+    fn create_dir<P>(&self, path: P) -> io::Result<Self::Dir>
         where P: AsRef<Path>
     {
-        unimplemented!()
+        let path = path.as_ref();
+        if let Some(parent_dir) = path.parent() {
+            let dir = self.open_dir(parent_dir)?;
+            let file_name = path.file_name().unwrap().to_str().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+            let current_time = ::chrono::offset::Local::now().naive_local();
+            let first_cluster = self.borrow_mut().fat.new_chain()?;
+            let metadata = VFatMetadata {
+                attributes: Attributes::new(true),
+                created: current_time,
+                accessed: current_time.date(),
+                modified: current_time,
+                first_cluster,
+                size: 0,
+            };
+            let entry = dir.create_entry(file_name, &metadata)?;
+            let dir = entry.open_dir()?;
+            dir.0.lock().unwrap().init_empty(current_time)?;
+            Ok(dir)
+        } else {
+            Err(io::Error::new(io::ErrorKind::AlreadyExists, "invalid directory path"))
+        }
     }
 
     fn rename<P, Q>(&self, _from: P, _to: Q) -> io::Result<()>

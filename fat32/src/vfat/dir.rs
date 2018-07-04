@@ -4,7 +4,7 @@ use vfat::{VFatFileSystem, Shared, VFatEntry};
 use std::mem;
 use std::io::{Read, Write, Seek, SeekFrom};
 use fallible_iterator::FallibleIterator;
-use traits::{Dir, Date, Time, DateTime};
+use traits::{Dir, Date, Time, DateTime, Entry};
 use vfat::metadata::VFatMetadata;
 use vfat::metadata::Attributes;
 use vfat::cluster_chain::ClusterChain;
@@ -385,6 +385,36 @@ impl VFatDir {
         } else {
             Ok(None)
         }
+    }
+
+    pub(crate) fn init_empty(&mut self, time: DateTime) -> io::Result<()> {
+        if self.entry.is_some() {
+            let dot_metadata = VFatMetadata {
+                attributes: Attributes::new(true),
+                created: time,
+                accessed: time.date(),
+                modified: time,
+                first_cluster: self.chain.first_cluster,
+                size: 0,
+            };
+            let dot_entry = VFatRegularDirEntry::from(".", "", &dot_metadata);
+            self.set_raw_entry(0, &dot_entry.as_union())?;
+
+            let parent_dir = self.entry.as_ref().unwrap().parent();
+            let parent_first_cluster = parent_dir.0.lock().unwrap().chain.first_cluster;
+            let dotdot_metadata = VFatMetadata {
+                first_cluster: parent_first_cluster,
+                ..dot_metadata
+            };
+            let dotdot_entry = VFatRegularDirEntry::from("..", "", &dotdot_metadata);
+            self.set_raw_entry(1, &dotdot_entry.as_union())?;
+
+            self.set_raw_entry(2, &VFatDirEntry::new_eof_mark())?;
+        } else {
+            self.set_raw_entry(0, &VFatDirEntry::new_eof_mark())?;
+        }
+
+        Ok(())
     }
 }
 

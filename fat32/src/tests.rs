@@ -712,3 +712,26 @@ fn vfat_create_last_entry() {
 //        i += 1;
 //    }
 }
+
+#[test]
+fn vfat_create_dir_and_file() {
+    let file_path = Path::new("/rpi3-docs/test/test.txt");
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    vfat.create_dir(file_path.parent().unwrap()).unwrap();
+
+    let bytes = [1, 0, 2, 3];
+
+    let mut file = vfat.create_file(file_path).unwrap();
+    file.write_all(&bytes).unwrap();
+    drop(file);
+
+    // Remount
+    let partition = vfat.into_block_device();
+    let vfat = VFatFileSystem::from(partition).unwrap();
+
+    let mut file = vfat.open_file(file_path, FileOpenMode::Read).unwrap();
+    let mut buf = Vec::new();
+    file.read_to_end(&mut buf).unwrap();
+    assert_eq!(buf, bytes);
+}
