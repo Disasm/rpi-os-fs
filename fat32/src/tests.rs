@@ -13,6 +13,8 @@ use std::io::SeekFrom;
 use std::cell::RefCell;
 use vfat::lock_manager::LockMode;
 use vfat::cluster_chain::ClusterChain;
+use vfat::dir::VFatDirEntry;
+use vfat::dir::RawDirIterator;
 
 mod mock {
     use std::io::{Read, Write, Seek, Result, SeekFrom};
@@ -686,4 +688,27 @@ fn vfat_create_file() {
     let mut buf = Vec::new();
     file.read_to_end(&mut buf).unwrap();
     assert_eq!(buf, bytes);
+}
+
+#[test]
+fn vfat_create_last_entry() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let dir_path = "/rpi3-docs";
+    let dir = vfat.open_dir(dir_path).unwrap();
+
+    assert_eq!(RawDirIterator { dir: &mut dir.0.lock().unwrap(), raw_index: 0}.count().unwrap(), 10);
+
+    let garbage: VFatDirEntry = unsafe { ::std::mem::transmute([0x42u8; VFatDirEntry::SIZE]) };
+    for i in 11..16 {
+        dir.0.lock().unwrap().set_raw_entry(i, &garbage).unwrap();
+    }
+
+    vfat.create_file("/rpi3-docs/1234567890123456").unwrap();
+
+    assert_eq!(RawDirIterator { dir: &mut dir.0.lock().unwrap(), raw_index: 0}.count().unwrap(), 13);
+//    let mut i = 0;
+//    while let Some(entry) = dir.0.lock().unwrap().get_raw_entry(i).unwrap() {
+//        println!("entry i={} valid={}", i, entry.is_valid());
+//        i += 1;
+//    }
 }

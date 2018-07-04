@@ -26,7 +26,7 @@ pub struct VFatDir {
 pub struct SharedVFatDir(pub(crate) Arc<Mutex<VFatDir>>);
 
 #[derive(Debug)]
-struct VFatRawDirEntry {
+struct VFatSimpleDirEntry {
     name: String,
     short_name: String,
     metadata: VFatMetadata,
@@ -160,9 +160,9 @@ pub union VFatDirEntry {
 }
 
 impl VFatDirEntry {
-    const SIZE: usize = ::std::mem::size_of::<Self>();
+    pub const SIZE: usize = ::std::mem::size_of::<Self>();
 
-    fn new_free() -> Self {
+    pub fn new_free() -> Self {
         unsafe {
             let mut entry: VFatDirEntry = mem::zeroed();
             entry.unknown.first_byte = 0xe5;
@@ -170,15 +170,21 @@ impl VFatDirEntry {
         }
     }
 
-    fn is_regular(&self) -> bool {
+    pub fn new_eof_mark() -> Self {
+        unsafe {
+            mem::zeroed()
+        }
+    }
+
+    pub fn is_regular(&self) -> bool {
         self.is_valid() && !self.is_lfn()
     }
 
-    fn is_lfn(&self) -> bool {
+    pub fn is_lfn(&self) -> bool {
         self.is_valid() && unsafe { self.unknown }.attributes == 0x0f
     }
 
-    fn is_valid(&self) -> bool {
+    pub fn is_valid(&self) -> bool {
         unsafe { self.unknown }.first_byte != 0xe5
     }
 }
@@ -216,7 +222,7 @@ impl VFatDir {
         }
     }
 
-    fn get_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatDirEntry>> {
+    pub(crate) fn get_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatDirEntry>> {
         self.chain.seek(SeekFrom::Start(index * VFatDirEntry::SIZE as u64))?;
         if self.chain.at_end() {
             return Ok(None);
@@ -231,7 +237,7 @@ impl VFatDir {
         }
     }
 
-    fn set_raw_entry(&mut self, index: u64, entry: &VFatDirEntry) -> io::Result<()> {
+    pub(crate) fn set_raw_entry(&mut self, index: u64, entry: &VFatDirEntry) -> io::Result<()> {
         self.chain.seek(SeekFrom::Start(index * VFatDirEntry::SIZE as u64))?;
 
         assert_eq!(VFatDirEntry::SIZE, mem::size_of::<VFatDirEntry>());
@@ -246,7 +252,7 @@ impl VFatDir {
         Ok(())
     }
 
-    fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatRawDirEntry> {
+    fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatSimpleDirEntry> {
         if (file_name.len() >= 255) || (file_name.len() == 0) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "incorrect file name length"));
         }
@@ -255,6 +261,7 @@ impl VFatDir {
 
         let mut free_count: u64 = 0;
         let mut index = 0;
+        let mut at_end = false;
         loop {
             if let Some(entry) = self.get_raw_entry(index)? {
                 if entry.is_valid() {
@@ -267,6 +274,7 @@ impl VFatDir {
                     break;
                 }
             } else {
+                at_end = true;
                 break;
             }
             index += 1;
@@ -280,18 +288,22 @@ impl VFatDir {
         for (i, entry) in lfn_entries.iter().enumerate() {
             self.set_raw_entry(alloc_index + i as u64, entry.as_union())?;
         }
-        self.set_raw_entry(alloc_index + lfn_entries.len() as u64, regular_entry.as_union())?;
+        let regular_entry_index = alloc_index + lfn_entries.len() as u64;
+        self.set_raw_entry(regular_entry_index, regular_entry.as_union())?;
+        if at_end {
+            self.set_raw_entry(regular_entry_index + 1, &VFatDirEntry::new_eof_mark())?;
+        }
 
-        let entry = VFatRawDirEntry {
+        let entry = VFatSimpleDirEntry {
             name: file_name.to_string(),
             short_name: short_file_name,
             metadata: metadata.clone(),
-            entry_index_range: alloc_index..=(alloc_index + lfn_entries.len() as u64),
+            entry_index_range: alloc_index..=regular_entry_index,
         };
         Ok(entry)
     }
 
-    fn next_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatRawDirEntry>> {
+    fn next_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatSimpleDirEntry>> {
         let mut raw_iterator = RawDirIterator {
             dir: self,
             raw_index: index,
@@ -363,7 +375,7 @@ impl VFatDir {
                 first_cluster: ((regular_entry.cluster_high as u32) << 16) | (regular_entry.cluster_low as u32),
                 size: regular_entry.size,
             };
-            let entry = VFatRawDirEntry {
+            let entry = VFatSimpleDirEntry {
                 name: file_name,
                 short_name: short_file_name,
                 metadata,
@@ -378,9 +390,9 @@ impl VFatDir {
 
 
 
-struct RawDirIterator<'a> {
-    dir: &'a mut VFatDir,
-    raw_index: u64,
+pub(crate) struct RawDirIterator<'a> {
+    pub(crate) dir: &'a mut VFatDir,
+    pub(crate) raw_index: u64,
 }
 
 impl<'a> FallibleIterator for RawDirIterator<'a> {
@@ -470,7 +482,7 @@ impl Dir for SharedVFatDir {
 }
 
 impl SharedVFatDir {
-    fn convert_entry(&self, raw_entry: VFatRawDirEntry, vfat: Shared<VFatFileSystem>) -> VFatEntry {
+    fn convert_entry(&self, raw_entry: VFatSimpleDirEntry, vfat: Shared<VFatFileSystem>) -> VFatEntry {
         let ref_guard = vfat.borrow().lock_manager().lock(raw_entry.metadata.first_cluster, LockMode::Ref);
         VFatEntry {
             name: raw_entry.name,
