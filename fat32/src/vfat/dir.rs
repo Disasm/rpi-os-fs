@@ -248,7 +248,7 @@ impl VFatDir {
 
     fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatRawDirEntry> {
         if (file_name.len() >= 255) || (file_name.len() == 0) {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "incorrent file name length"));
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "incorrect file name length"));
         }
         let utf16_file_name: Vec<_> = file_name.encode_utf16().collect();
         let total_entry_count = (utf16_file_name.len() + 12) / 13 + 1;
