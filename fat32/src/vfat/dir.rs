@@ -256,6 +256,9 @@ impl VFatDir {
         if (file_name.len() >= 255) || (file_name.len() == 0) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "incorrect file name length"));
         }
+        if self.has_entry_with_name(file_name)? {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
         let utf16_file_name: Vec<_> = file_name.encode_utf16().collect();
         let total_entry_count = (utf16_file_name.len() + 12) / 13 + 1;
 
@@ -303,7 +306,7 @@ impl VFatDir {
         Ok(entry)
     }
 
-    fn next_raw_entry(&mut self, index: u64) -> io::Result<Option<VFatSimpleDirEntry>> {
+    fn next_simple_entry(&mut self, index: u64) -> io::Result<Option<VFatSimpleDirEntry>> {
         let mut raw_iterator = RawDirIterator {
             dir: self,
             raw_index: index,
@@ -385,6 +388,17 @@ impl VFatDir {
         } else {
             Ok(None)
         }
+    }
+
+    fn has_entry_with_name(&mut self, name: &str) -> io::Result<bool> {
+        let mut index = 0;
+        while let Some(simple_entry) = self.next_simple_entry(index)? {
+            index = simple_entry.entry_index_range.end + 1;
+            if &simple_entry.name == name {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     pub(crate) fn init_empty(&mut self, time: DateTime) -> io::Result<()> {
@@ -476,21 +490,18 @@ impl FallibleIterator for DirIterator {
 
     fn next(&mut self) -> io::Result<Option<VFatEntry>> {
         let vfat = self.dir.0.lock().unwrap().vfat.clone();
-        loop {
-            if let Some(raw_entry) = self.dir.0.lock().unwrap().next_raw_entry(self.index)? {
-                self.index = raw_entry.entry_index_range.end + 1;
-                if raw_entry.metadata.attributes.is_volume_id() { // skip volume id
-                    continue;
-                }
-                if raw_entry.name == "." || raw_entry.name == ".." {
-                    continue;
-                }
-                let entry = self.dir.convert_entry(raw_entry, vfat);
-                return Ok(Some(entry));
-            } else {
-                return Ok(None);
+        while let Some(simple_entry) = self.dir.0.lock().unwrap().next_simple_entry(self.index)? {
+            self.index = simple_entry.entry_index_range.end + 1;
+            if simple_entry.metadata.attributes.is_volume_id() { // skip volume id
+                continue;
             }
+            if simple_entry.name == "." || simple_entry.name == ".." {
+                continue;
+            }
+            let entry = self.dir.convert_entry(simple_entry, vfat);
+            return Ok(Some(entry));
         }
+        Ok(None)
     }
 }
 

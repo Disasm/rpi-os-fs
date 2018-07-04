@@ -758,3 +758,11 @@ fn vfat_rename_file() {
     let bytes = [0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x25, 0xc7, 0xec, 0x8f, 0xa2, 0x0a, 0x35];
     assert_eq!(buf, bytes);
 }
+
+#[test]
+fn vfat_create_file_twice() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    assert!(vfat.create_file(file_path).is_err());
+}
