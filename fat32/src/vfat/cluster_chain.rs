@@ -116,10 +116,6 @@ impl io::Write for ClusterChain {
         }
         let mut total_write_size = 0;
         loop {
-            if self.current_cluster.is_none() {
-                let new_cluster = self.fat.alloc_for_chain(self.previous_cluster.unwrap())?;
-                self.current_cluster = Some(new_cluster);
-            }
             let buf_tail = &buf[total_write_size..];
 
             let cluster_offset = self.position % self.cluster_size_bytes as u64;
@@ -127,6 +123,12 @@ impl io::Write for ClusterChain {
             if write_size == 0 {
                 break;
             }
+
+            if self.current_cluster.is_none() {
+                let new_cluster = self.fat.alloc_for_chain(self.previous_cluster.unwrap())?;
+                self.current_cluster = Some(new_cluster);
+            }
+
             self.vfat.borrow_mut().write_cluster(self.current_cluster.unwrap(), cluster_offset as u32,
                                                 &buf_tail[..write_size as usize])?;
             self.advance(write_size)?;
