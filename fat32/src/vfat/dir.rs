@@ -26,7 +26,7 @@ pub struct VFatDir {
 pub struct SharedVFatDir(pub(crate) Arc<Mutex<VFatDir>>);
 
 #[derive(Debug)]
-struct VFatSimpleDirEntry {
+pub(crate) struct VFatSimpleDirEntry {
     name: String,
     short_name: String,
     metadata: VFatMetadata,
@@ -252,7 +252,7 @@ impl VFatDir {
         Ok(())
     }
 
-    fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatSimpleDirEntry> {
+    pub(crate) fn create_entry(&mut self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatSimpleDirEntry> {
         if (file_name.len() >= 255) || (file_name.len() == 0) {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "incorrect file name length"));
         }

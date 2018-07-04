@@ -735,3 +735,26 @@ fn vfat_create_dir_and_file() {
     file.read_to_end(&mut buf).unwrap();
     assert_eq!(buf, bytes);
 }
+
+#[test]
+fn vfat_rename_file() {
+    let file_path = "/rpi3-docs/RPi3-Schematics.pdf";
+    let new_file_path = "/RPi3-Schematics.pdf";
+
+    let vfat = vfat_from_resource("mock1.fat32.img");
+
+    vfat.rename(file_path, new_file_path).unwrap();
+
+    // Remount
+    let partition = vfat.into_block_device();
+    let vfat = VFatFileSystem::from(partition).unwrap();
+
+    assert!(vfat.open_file(file_path, FileOpenMode::Read).is_err());
+    let mut file = vfat.open_file(new_file_path, FileOpenMode::Read).unwrap();
+
+    let mut buf = [0; 16];
+    file.read_exact(&mut buf).unwrap();
+
+    let bytes = [0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34, 0x0a, 0x25, 0xc7, 0xec, 0x8f, 0xa2, 0x0a, 0x35];
+    assert_eq!(buf, bytes);
+}

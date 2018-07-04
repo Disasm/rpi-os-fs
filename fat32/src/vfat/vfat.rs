@@ -19,6 +19,7 @@ use fallible_iterator::FallibleIterator;
 use vfat::metadata::VFatMetadata;
 use vfat::metadata::Attributes;
 use traits::FileOpenMode;
+use vfat::lock_manager::FSObjectGuard;
 
 pub struct VFatFileSystem {
     pub(crate) device: SharedLogicalBlockDevice,
@@ -92,7 +93,22 @@ impl VFatFileSystem {
 
 
 impl Shared<VFatFileSystem> {
-
+    fn lock_entry_for_deletion(&self, entry: &mut VFatEntry) -> io::Result<FSObjectGuard> {
+        if entry.is_file() {
+            entry.ref_guard.take();
+            let mut lock = self.borrow().lock_manager().try_lock(entry.metadata.first_cluster, LockMode::Delete)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "can't get delete lock for file"))?;
+            Ok(lock.take())
+        } else {
+            let dir = VFatDir::open(self.clone(), entry.metadata.first_cluster, Some(entry.clone()))
+                .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "failed to lock dir before deleting it"))?;
+            if dir.entries()?.next()?.is_some() {
+                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "can't remove non-empty dir"));
+            }
+            let mut dir = dir.0.lock().unwrap();
+            Ok(dir.chain.guard.take())
+        }
+    }
 
     pub fn into_block_device(self) -> Box<BlockDevice> {
         let vfat = self.unwrap();
@@ -193,27 +209,32 @@ impl FileSystem for Shared<VFatFileSystem> {
         }
     }
 
-    fn rename<P, Q>(&self, _from: P, _to: Q) -> io::Result<()>
+    fn rename<P, Q>(&self, from: P, to: Q) -> io::Result<()>
         where P: AsRef<Path>, Q: AsRef<Path>
     {
-        unimplemented!()
+        let from = from.as_ref();
+        let to = to.as_ref();
+
+        let mut entry = self.get_entry(from)?;
+        let _lock = self.lock_entry_for_deletion(&mut entry)?;
+
+        let new_parent_path = if let Some(p) = to.parent() {
+            p
+        } else {
+            return Err(io::Error::new(io::ErrorKind::AlreadyExists, "invalid path"));
+        };
+
+        let new_parent = self.open_dir(new_parent_path)?;
+        let file_name = to.file_name().unwrap().to_str().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+        new_parent.0.lock().unwrap().create_entry(file_name, &entry.metadata)?;
+        entry.dir.0.lock().unwrap().remove_entry(&entry)?;
+        Ok(())
     }
 
     fn remove_entry(&self, mut entry: VFatEntry) -> io::Result<()> {
-        let _lock = if entry.is_file() {
-            entry.ref_guard.take();
-            self.borrow().lock_manager().try_lock(entry.metadata.first_cluster, LockMode::Delete)
-                .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "can't get delete lock for file"))?.take()
-        } else {
-            let dir = VFatDir::open(self.clone(), entry.metadata.first_cluster, Some(entry.clone()))
-                .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "failed to lock dir before deleting it"))?;
-            if dir.entries()?.next()?.is_some() {
-                return Err(io::Error::new(io::ErrorKind::PermissionDenied, "can't remove non-empty dir"));
-            }
-            let mut dir = dir.0.lock().unwrap();
-            dir.chain.guard.take()
-        };
+        let _lock = self.lock_entry_for_deletion(&mut entry)?;
         entry.dir.0.lock().unwrap().remove_entry(&entry)?;
         self.borrow_mut().fat.free_chain(entry.metadata.first_cluster)
     }
 }
+
