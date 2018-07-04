@@ -50,7 +50,6 @@ impl fmt::Debug for FatEntry {
     }
 }
 
-
 struct SingleFat {
     device: SharedLogicalBlockDevice,
     offset: u64,
