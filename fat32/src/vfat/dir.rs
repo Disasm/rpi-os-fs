@@ -241,7 +241,9 @@ impl VFatDir {
         self.chain.seek(SeekFrom::Start(index * VFatDirEntry::SIZE as u64))?;
 
         assert_eq!(VFatDirEntry::SIZE, mem::size_of::<VFatDirEntry>());
-        let buf: &[u8; VFatDirEntry::SIZE] = unsafe { mem::transmute(entry) };
+        let buf = unsafe {
+            ::std::slice::from_raw_parts(entry as *const VFatDirEntry as *const u8, VFatDirEntry::SIZE)
+        };
         self.chain.write_all(buf)
     }
 

@@ -4,6 +4,7 @@ use traits::BlockDevice;
 use std::sync::{Arc, Mutex};
 use vfat::logical_block_device::SharedLogicalBlockDevice;
 use vfat::BiosParameterBlock;
+use byteorder::{LittleEndian, ByteOrder};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Status {
@@ -75,7 +76,7 @@ impl SingleFat {
         }
         let mut buf = [0; 4];
         self.device.read_by_offset(self.offset + cluster as u64 * Self::FAT_ENTRY_SIZE, &mut buf)?;
-        let entry: u32 = unsafe { ::std::mem::transmute(buf) };
+        let entry = LittleEndian::read_u32(&buf);
         Ok(FatEntry(entry))
     }
 
@@ -83,7 +84,8 @@ impl SingleFat {
         if cluster >= self.size {
             return Err(io::Error::from(io::ErrorKind::InvalidInput));
         }
-        let buf: [u8; 4] = unsafe { ::std::mem::transmute(entry) };
+        let mut buf = [0; 4];
+        LittleEndian::write_u32(&mut buf, entry);
         self.device.write_by_offset(self.offset + cluster as u64 * Self::FAT_ENTRY_SIZE, &buf)
     }
 
