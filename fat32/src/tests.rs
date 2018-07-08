@@ -23,22 +23,20 @@ mod mock {
     pub trait MockBlockDevice : Read + Write + Seek + Send {    }
 
     impl<T: MockBlockDevice> ::traits::BlockDevice for RefCell<T> {
-        fn read_sector(&self, n: u64, buf: &mut [u8]) -> Result<usize> {
+        fn read_sector(&self, n: u64, buf: &mut [u8]) -> Result<()> {
             let mut self1 = self.borrow_mut();
             let sector_size = self.sector_size();
-            let to_read = ::std::cmp::min(sector_size as usize, buf.len());
             self1.seek(SeekFrom::Start(n * sector_size))?;
-            self1.read_exact(&mut buf[..to_read])?;
-            Ok(to_read)
+            self1.read_exact(buf)?;
+            Ok(())
         }
 
-        fn write_sector(&mut self, n: u64, buf: &[u8]) -> Result<usize> {
+        fn write_sector(&mut self, n: u64, buf: &[u8]) -> Result<()> {
             let mut self1 = self.borrow_mut();
             let sector_size = self.sector_size();
-            let to_write = ::std::cmp::min(sector_size as usize, buf.len());
             self1.seek(SeekFrom::Start(n * sector_size))?;
-            self1.write_all(&buf[..to_write])?;
-            Ok(to_write)
+            self1.write_all(buf)?;
+            Ok(())
         }
 
         fn sync(&mut self) -> Result<()> {
@@ -418,8 +416,7 @@ fn mbr_get_partition() {
     let device = load_partition("mock1.fat32.img");
 
     let mut buffer = [0; 512];
-    let size = device.read_sector(0, &mut buffer).unwrap();
-    assert_eq!(size, 512);
+    device.read_sector(0, &mut buffer).unwrap();
 
     let first16 = [0xeb, 0x58, 0x90, 0x42, 0x53, 0x44, 0x20, 0x20, 0x34, 0x2e, 0x34, 0x00, 0x02, 0x01, 0x20, 0x00];
     assert_eq!(buffer[..16], first16);
