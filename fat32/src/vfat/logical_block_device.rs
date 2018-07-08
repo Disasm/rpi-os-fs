@@ -25,20 +25,20 @@ impl BlockDevice for LogicalBlockDevice {
         self.logical_sector_size
     }
 
-    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> Result<(), io::Error> {
         let size = min(buf.len(), self.sector_size() as usize);
         let buf2 = &mut buf[..size];
         let source_offset = sector * self.sector_size();
         self.source.read_by_offset(source_offset, buf2)?;
-        Ok(buf2.len())
+        Ok(())
     }
 
-    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> Result<usize, io::Error> {
+    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> Result<(), io::Error> {
         let size = min(buf.len(), self.sector_size() as usize);
         let buf2 = &buf[..size];
         let source_offset = sector * self.sector_size();
         self.source.write_by_offset(source_offset, buf2)?;
-        Ok(buf2.len())
+        Ok(())
     }
 
     fn sync(&mut self) -> io::Result<()> {

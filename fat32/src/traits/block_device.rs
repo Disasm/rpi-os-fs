@@ -84,17 +84,14 @@ pub trait BlockDevice: Send {
     /// # Errors
     ///
     /// Returns an error if seeking or reading from `self` fails.
-    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<usize>;
+    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<()>;
 
     fn read_by_offset(&self, offset_bytes: u64, buf: &mut [u8]) -> io::Result<()> {
         let mut read_sector_buf = Vec::new();
         read_sector_buf.resize(self.sector_size() as usize, 0);
         for chunk in IOOperationIterator::new(self.sector_size() as usize,
                                               buf.len(), offset_bytes) {
-            let read_size = self.read_sector(chunk.sector, &mut read_sector_buf)?;
-            if read_size != self.sector_size() as usize {
-                return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
-            }
+            self.read_sector(chunk.sector, &mut read_sector_buf)?;
             buf[chunk.buf_range()].copy_from_slice(&read_sector_buf[chunk.sector_range()]);
         }
         Ok(())
@@ -109,15 +106,9 @@ pub trait BlockDevice: Send {
             if chunk.size == self.sector_size() as usize {
                 self.write_sector(chunk.sector, buf_slice)?;
             } else {
-                let read_size = self.read_sector(chunk.sector, &mut read_sector_buf)?;
-                if read_size != self.sector_size() as usize {
-                    return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
-                }
+                self.read_sector(chunk.sector, &mut read_sector_buf)?;
                 read_sector_buf[chunk.sector_range()].copy_from_slice(buf_slice);
-                let write_size = self.write_sector(chunk.sector, &read_sector_buf)?;
-                if write_size != self.sector_size() as usize {
-                    return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
-                }
+                self.write_sector(chunk.sector, &read_sector_buf)?;
             }
         }
         Ok(())
@@ -156,7 +147,7 @@ pub trait BlockDevice: Send {
     /// Returns an error if seeking or writing to `self` fails. Returns an
     /// error of `UnexpectedEof` if the length of `buf` is less than
     /// `self.sector_size()`.
-    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<usize>;
+    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<()>;
 
     fn sync(&mut self) -> io::Result<()>;
 }
@@ -176,11 +167,11 @@ impl BlockDevice for Box<BlockDevice> {
         self.deref().sector_size()
     }
 
-    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<usize> {
+    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<()> {
         self.deref().read_sector(sector, buf)
     }
 
-    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<usize> {
+    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<()> {
         self.deref_mut().write_sector(sector, buf)
     }
 
@@ -194,11 +185,11 @@ impl<T: BlockDevice> BlockDevice for Arc<Mutex<T>> {
         self.lock().unwrap().sector_size()
     }
 
-    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<usize> {
+    fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<()> {
         self.lock().unwrap().read_sector(sector, buf)
     }
 
-    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<usize> {
+    fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<()> {
         self.lock().unwrap().write_sector(sector, buf)
     }
 

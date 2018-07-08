@@ -1,7 +1,6 @@
 use traits::BlockDevice;
 use std::io;
 use std::collections::HashMap;
-use std::cmp::min;
 use std::cell::RefCell;
 
 
@@ -53,22 +52,26 @@ impl<T: BlockDevice> BlockDevice for CachedDevice<T> {
         self.source.sector_size()
     }
 
-    fn read_sector(&self, n: u64, buf: &mut [u8]) -> Result<usize, io::Error> {
+    fn read_sector(&self, n: u64, buf: &mut [u8]) -> Result<(), io::Error> {
+        if buf.len() as u64 != self.sector_size() {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
         let mut cache = self.cache.borrow_mut();
         let cache_entry = cache.cache_entry(n, &self.source)?;
-        let bytes = min(cache_entry.data.len(), buf.len());
-        buf[..bytes].copy_from_slice(&cache_entry.data[..bytes]);
-        return Ok(bytes);
+        buf.copy_from_slice(&cache_entry.data);
+        Ok(())
 
     }
 
-    fn write_sector(&mut self, n: u64, buf: &[u8]) -> Result<usize, io::Error> {
+    fn write_sector(&mut self, n: u64, buf: &[u8]) -> Result<(), io::Error> {
+        if buf.len() as u64 != self.sector_size() {
+            return Err(io::Error::from(io::ErrorKind::InvalidInput));
+        }
         let mut cache = self.cache.borrow_mut();
         let cache_entry = cache.cache_entry(n, &self.source)?;
-        let bytes = min(cache_entry.data.len(), buf.len());
-        cache_entry.data[..bytes].copy_from_slice(&buf[..bytes]);
+        cache_entry.data.copy_from_slice(&buf);
         cache_entry.is_dirty = true;
-        return Ok(bytes);
+        Ok(())
     }
 
     fn sync(&mut self) -> io::Result<()> {
