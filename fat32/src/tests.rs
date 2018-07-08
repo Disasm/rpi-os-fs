@@ -763,3 +763,14 @@ fn vfat_create_file_twice() {
 
     assert!(vfat.create_file(file_path).is_err());
 }
+
+#[test]
+fn test_root_entries_after_create() {
+    let vfat = vfat_from_resource("mock1.fat32.img");
+    let file_path = "/new_file.txt";
+    vfat.create_file(file_path).unwrap();
+    vfat.remove(file_path).unwrap();
+
+    let hash = hash_dir_from(vfat, "/");
+    assert_hash_eq("mock 1 root directory", &hash, &hash_for("root-entries-1"));
+}
