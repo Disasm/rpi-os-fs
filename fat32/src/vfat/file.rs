@@ -6,7 +6,7 @@ use traits::File;
 use vfat::VFatEntry;
 use traits::FileOpenMode;
 use vfat::lock_manager::LockMode;
-
+use traits::BlockDevice;
 
 pub struct VFatFile {
     chain: ClusterChain,
@@ -76,6 +76,7 @@ impl io::Write for VFatFile {
             self.entry.set_file_size(self.size)?;
             self.old_size = self.size;
         }
+        self.chain.vfat.borrow_mut().device.sync()?;
         Ok(())
     }
 }
