@@ -277,12 +277,13 @@ impl VFatDir {
                     break;
                 }
             } else {
+                free_count += 1;
                 at_end = true;
                 break;
             }
             index += 1;
         }
-        let alloc_index = index - free_count;
+        let alloc_index = index - free_count + 1;
         let short_file_name = format!("_~{}", alloc_index);
         let regular_entry = VFatRegularDirEntry::from(&short_file_name, "", metadata);
         let lfn_entries = create_lfn_entries(file_name, regular_entry.checksum());
