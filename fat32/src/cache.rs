@@ -81,6 +81,7 @@ impl<T: BlockDevice> BlockDevice for CachedDevice<T> {
                 entry.is_dirty = false;
             }
         }
+        self.source.sync()?;
         Ok(())
     }
 }
