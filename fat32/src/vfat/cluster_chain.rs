@@ -8,7 +8,7 @@ use vfat::lock_manager::LockMode;
 use vfat::lock_manager::FSObjectGuard;
 
 pub struct ClusterChain {
-    vfat: Shared<VFatFileSystem>,
+    pub(crate) vfat: Shared<VFatFileSystem>,
     fat: SharedFat,
     pub(crate) first_cluster: u32,
     cluster_size_bytes: u32,
