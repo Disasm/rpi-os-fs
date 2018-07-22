@@ -2,8 +2,7 @@ use std::io;
 use std::cmp::min;
 use std::ops::Range;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
-use std::sync::Mutex;
+use arc_mutex::ArcMutex;
 
 struct IOOperationChunk {
     sector: u64,
@@ -180,20 +179,20 @@ impl BlockDevice for Box<BlockDevice> {
     }
 }
 
-impl<T: BlockDevice> BlockDevice for Arc<Mutex<T>> {
+impl<T: BlockDevice> BlockDevice for ArcMutex<T> {
     fn sector_size(&self) -> u64 {
-        self.lock().unwrap().sector_size()
+        self.lock().sector_size()
     }
 
     fn read_sector(&self, sector: u64, buf: &mut [u8]) -> io::Result<()> {
-        self.lock().unwrap().read_sector(sector, buf)
+        self.lock().read_sector(sector, buf)
     }
 
     fn write_sector(&mut self, sector: u64, buf: &[u8]) -> io::Result<()> {
-        self.lock().unwrap().write_sector(sector, buf)
+        self.lock().write_sector(sector, buf)
     }
 
     fn sync(&mut self) -> io::Result<()> {
-        self.lock().unwrap().sync()
+        self.lock().sync()
     }
 }

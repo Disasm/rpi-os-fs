@@ -25,3 +25,5 @@ pub use mbr::*;
 pub extern crate chrono;
 pub extern crate fallible_iterator;
 extern crate byteorder;
+
+pub mod arc_mutex;

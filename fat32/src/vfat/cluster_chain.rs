@@ -1,14 +1,15 @@
 use std::cmp::min;
 use std::io::{self, SeekFrom};
 
-use vfat::{VFatFileSystem, Shared};
+use vfat::{VFatFileSystem};
 use traits::BlockDevice;
 use vfat::fat::SharedFat;
 use vfat::lock_manager::LockMode;
 use vfat::lock_manager::FSObjectGuard;
+use arc_mutex::ArcMutex;
 
 pub struct ClusterChain {
-    pub(crate) vfat: Shared<VFatFileSystem>,
+    pub(crate) vfat: ArcMutex<VFatFileSystem>,
     fat: SharedFat,
     pub(crate) first_cluster: u32,
     cluster_size_bytes: u32,
@@ -19,8 +20,8 @@ pub struct ClusterChain {
 }
 
 impl ClusterChain {
-    pub fn open(vfat: Shared<VFatFileSystem>, first_cluster: u32, mode: LockMode) -> Option<ClusterChain> {
-        let vfat2 = vfat.borrow();
+    pub fn open(vfat: ArcMutex<VFatFileSystem>, first_cluster: u32, mode: LockMode) -> Option<ClusterChain> {
+        let vfat2 = vfat.lock();
         if let Some(guard) = vfat2.lock_manager().try_lock(first_cluster, mode) {
             Some(ClusterChain {
                 fat: vfat2.fat(),
@@ -100,7 +101,7 @@ impl io::Read for ClusterChain {
             if read_size == 0 {
                 break;
             }
-            self.vfat.borrow_mut().read_cluster(self.current_cluster.unwrap(), cluster_offset as u32,
+            self.vfat.lock().read_cluster(self.current_cluster.unwrap(), cluster_offset as u32,
                                                 &mut buf_tail[..read_size as usize])?;
             self.advance(read_size)?;
             total_read_size += read_size as usize;
@@ -129,7 +130,7 @@ impl io::Write for ClusterChain {
                 self.current_cluster = Some(new_cluster);
             }
 
-            self.vfat.borrow_mut().write_cluster(self.current_cluster.unwrap(), cluster_offset as u32,
+            self.vfat.lock().write_cluster(self.current_cluster.unwrap(), cluster_offset as u32,
                                                 &buf_tail[..write_size as usize])?;
             self.advance(write_size)?;
             total_write_size += write_size as usize;
@@ -138,7 +139,7 @@ impl io::Write for ClusterChain {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.vfat.borrow_mut().device.sync()
+        self.vfat.lock().device.sync()
     }
 }
 

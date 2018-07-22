@@ -1,17 +1,16 @@
 use std::io;
 use std::path::Path;
 
-use vfat::{Shared, VFatFile, VFatDir, Error};
+use vfat::{VFatFile, VFatDir, Error};
 use vfat::BiosParameterBlock;
 use traits::{FileSystem, BlockDevice, Entry, Dir};
 use vfat::logical_block_device::LogicalBlockDevice;
 use std::path::Component;
 use vfat::VFatEntry;
 use vfat::logical_block_device::SharedLogicalBlockDevice;
-use std::sync::{Arc, Mutex};
 use vfat::fat::SharedFat;
 use vfat::lock_manager::SharedLockManager;
-use std::sync::Weak;
+use arc_mutex::Weak;
 use std::collections::HashMap;
 use vfat::dir::SharedVFatDir;
 use vfat::lock_manager::LockMode;
@@ -20,6 +19,8 @@ use vfat::metadata::VFatMetadata;
 use vfat::metadata::Attributes;
 use traits::FileOpenMode;
 use vfat::lock_manager::FSObjectGuard;
+use arc_mutex::ArcMutex;
+use std::sync::Mutex;
 
 pub struct VFatFileSystem {
     pub(crate) device: SharedLogicalBlockDevice,
@@ -33,11 +34,11 @@ pub struct VFatFileSystem {
 }
 
 impl VFatFileSystem {
-    pub fn from(mut device: Box<BlockDevice>) -> Result<Shared<VFatFileSystem>, Error>
+    pub fn from(mut device: Box<BlockDevice>) -> Result<ArcMutex<VFatFileSystem>, Error>
     {
         let ebpb = BiosParameterBlock::read_from(&mut device)?;
         let logical_block_device = LogicalBlockDevice::new(device, ebpb.bytes_per_logical_sector as u64);
-        let device = Mutex::new(logical_block_device).into();
+        let device = ArcMutex::new(logical_block_device);
         let vfat = VFatFileSystem {
             fat: SharedFat::new(&device, &ebpb),
             device,
@@ -49,7 +50,7 @@ impl VFatFileSystem {
             lock_manager: SharedLockManager::new(),
             dirs: HashMap::new(),
         };
-        Ok(Shared::new(vfat))
+        Ok(ArcMutex::new(vfat))
     }
 
     pub(crate) fn cluster_size_bytes(&self) -> u32 {
@@ -92,11 +93,11 @@ impl VFatFileSystem {
 }
 
 
-impl Shared<VFatFileSystem> {
+impl ArcMutex<VFatFileSystem> {
     fn lock_entry_for_deletion(&self, entry: &mut VFatEntry) -> io::Result<FSObjectGuard> {
         if entry.is_file() {
             entry.ref_guard.take();
-            let mut lock = self.borrow().lock_manager().try_lock(entry.metadata.first_cluster, LockMode::Delete)
+            let mut lock = self.lock().lock_manager().try_lock(entry.metadata.first_cluster, LockMode::Delete)
                 .ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "can't get delete lock for file"))?;
             Ok(lock.take())
         } else {
@@ -105,7 +106,7 @@ impl Shared<VFatFileSystem> {
             if dir.entries()?.next()?.is_some() {
                 return Err(io::Error::new(io::ErrorKind::PermissionDenied, "can't remove non-empty dir"));
             }
-            let mut dir = dir.0.lock().unwrap();
+            let mut dir = dir.0.lock();
             Ok(dir.chain.guard.take())
         }
     }
@@ -113,16 +114,16 @@ impl Shared<VFatFileSystem> {
     pub fn into_block_device(self) -> Box<BlockDevice> {
         let vfat = self.unwrap();
         // TODO: unwrap fat, lock manager
-        vfat.fat.try_unwrap().ok().unwrap();
-        Arc::try_unwrap(vfat.device).ok().unwrap().into_inner().unwrap().source
+        vfat.fat.unwrap().unwrap();
+        vfat.device.unwrap().source
     }
 
     pub(crate) fn get_dir(&self, first_cluster: u32, entry: Option<VFatEntry>) -> Option<SharedVFatDir> {
-        if let Some(r) = self.borrow_mut().dirs.get(&first_cluster).and_then(|w| w.upgrade()) {
-            return Some(SharedVFatDir(r));
+        if let Some(r) = self.lock().dirs.get(&first_cluster).and_then(|w| w.upgrade()) {
+            return Some(SharedVFatDir(ArcMutex::from_rc(r)));
         }
         if let Some(dir) = VFatDir::open(self.clone(), first_cluster, entry) {
-            self.borrow_mut().dirs.insert(first_cluster, Arc::downgrade(&dir.0));
+            self.lock().dirs.insert(first_cluster, ArcMutex::downgrade(&dir.0));
             Some(dir)
         } else {
             None
@@ -130,7 +131,7 @@ impl Shared<VFatFileSystem> {
     }
 }
 
-impl FileSystem for Shared<VFatFileSystem> {
+impl FileSystem for ArcMutex<VFatFileSystem> {
     type File = VFatFile;
     type Dir = SharedVFatDir;
     type Entry = VFatEntry;
@@ -157,7 +158,7 @@ impl FileSystem for Shared<VFatFileSystem> {
     }
 
     fn root(&self) -> io::Result<SharedVFatDir> {
-        let first_cluster = self.borrow().root_dir_cluster;
+        let first_cluster = self.lock().root_dir_cluster;
         Self::get_dir(self, first_cluster, None).ok_or_else(|| io::Error::new(io::ErrorKind::PermissionDenied, "can't get root dir"))
     }
 
@@ -167,7 +168,7 @@ impl FileSystem for Shared<VFatFileSystem> {
             let dir = self.open_dir(parent_dir)?;
             let file_name = path.file_name().unwrap().to_str().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
             let current_time = ::chrono::offset::Local::now().naive_local();
-            let first_cluster = self.borrow_mut().fat.new_chain()?;
+            let first_cluster = self.lock().fat.new_chain()?;
             let metadata = VFatMetadata {
                 attributes: Attributes::new(false),
                 created: current_time,
@@ -191,7 +192,7 @@ impl FileSystem for Shared<VFatFileSystem> {
             let dir = self.open_dir(parent_dir)?;
             let file_name = path.file_name().unwrap().to_str().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
             let current_time = ::chrono::offset::Local::now().naive_local();
-            let first_cluster = self.borrow_mut().fat.new_chain()?;
+            let first_cluster = self.lock().fat.new_chain()?;
             let metadata = VFatMetadata {
                 attributes: Attributes::new(true),
                 created: current_time,
@@ -202,7 +203,7 @@ impl FileSystem for Shared<VFatFileSystem> {
             };
             let entry = dir.create_entry(file_name, &metadata)?;
             let dir = entry.open_dir()?;
-            dir.0.lock().unwrap().init_empty(current_time)?;
+            dir.0.lock().init_empty(current_time)?;
             Ok(dir)
         } else {
             Err(io::Error::new(io::ErrorKind::AlreadyExists, "invalid directory path"))
@@ -226,15 +227,15 @@ impl FileSystem for Shared<VFatFileSystem> {
 
         let new_parent = self.open_dir(new_parent_path)?;
         let file_name = to.file_name().unwrap().to_str().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
-        new_parent.0.lock().unwrap().create_entry(file_name, &entry.metadata)?;
-        entry.dir.0.lock().unwrap().remove_entry(&entry)?;
+        new_parent.0.lock().create_entry(file_name, &entry.metadata)?;
+        entry.dir.0.lock().remove_entry(&entry)?;
         Ok(())
     }
 
     fn remove_entry(&self, mut entry: VFatEntry) -> io::Result<()> {
         let _lock = self.lock_entry_for_deletion(&mut entry)?;
-        entry.dir.0.lock().unwrap().remove_entry(&entry)?;
-        self.borrow_mut().fat.free_chain(entry.metadata.first_cluster)
+        entry.dir.0.lock().remove_entry(&entry)?;
+        self.lock().fat.free_chain(entry.metadata.first_cluster)
     }
 }
 

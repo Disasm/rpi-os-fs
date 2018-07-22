@@ -1,27 +1,28 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use arc_mutex::Arc;
 use std::sync::Mutex;
 use std::sync::Condvar;
 #[cfg(test)]
 use std::time::Duration;
+use arc_mutex::ArcMutex;
 
 struct LockManager {
     locks: HashMap<u32, Arc<SharedFSObjectLockInfo>>,
 }
 
 #[derive(Clone)]
-pub struct SharedLockManager(Arc<Mutex<LockManager>>);
+pub struct SharedLockManager(ArcMutex<LockManager>);
 
 impl SharedLockManager {
     pub fn new() -> Self {
         let lock_manager = LockManager {
             locks: HashMap::new(),
         };
-        SharedLockManager(Mutex::new(lock_manager).into())
+        SharedLockManager(ArcMutex::new(lock_manager))
     }
 
     fn get_lock_info(&self, cluster: u32) -> Arc<SharedFSObjectLockInfo> {
-        let mut inner = self.0.lock().unwrap();
+        let mut inner = self.0.lock();
         Arc::clone(inner.locks.entry(cluster).or_insert_with(|| Arc::default()))
     }
 
@@ -75,7 +76,7 @@ impl SharedLockManager {
         guard.0 = None;
 
         if let Some(cluster) = cluster_to_free {
-            let mut inner = self.0.lock().unwrap();
+            let mut inner = self.0.lock();
             if let Some(lock_info) = inner.locks.remove(&cluster) {
                 match Arc::try_unwrap(lock_info) {
                     Ok(_) => {},
@@ -317,10 +318,10 @@ fn test_hash_map_cleanup1() {
     let manager = SharedLockManager::new();
     let lock1 = manager.try_lock(id, LockMode::Read);
     assert!(lock1.is_some());
-    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+    assert!(manager.0.lock().locks.contains_key(&id));
 
     drop(lock1);
-    assert!(!manager.0.lock().unwrap().locks.contains_key(&id));
+    assert!(!manager.0.lock().locks.contains_key(&id));
 }
 
 #[test]
@@ -329,15 +330,15 @@ fn test_hash_map_cleanup2() {
     let manager = SharedLockManager::new();
     let lock1 = manager.try_lock(id, LockMode::Read);
     assert!(lock1.is_some());
-    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+    assert!(manager.0.lock().locks.contains_key(&id));
 
     let lock2 = manager.try_lock(id, LockMode::Ref);
     assert!(lock2.is_some());
-    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+    assert!(manager.0.lock().locks.contains_key(&id));
 
     drop(lock1);
-    assert!(manager.0.lock().unwrap().locks.contains_key(&id));
+    assert!(manager.0.lock().locks.contains_key(&id));
 
     drop(lock2);
-    assert!(!manager.0.lock().unwrap().locks.contains_key(&id));
+    assert!(!manager.0.lock().locks.contains_key(&id));
 }

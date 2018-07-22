@@ -4,7 +4,7 @@ use std::io::prelude::*;
 use std::io::Cursor;
 use std::path::Path;
 
-use vfat::{Shared, VFatFileSystem, BiosParameterBlock};
+use vfat::{VFatFileSystem, BiosParameterBlock};
 use mbr::{MasterBootRecord, CHS, PartitionEntry, get_partition};
 use traits::*;
 use fallible_iterator::FallibleIterator;
@@ -15,6 +15,7 @@ use vfat::lock_manager::LockMode;
 use vfat::cluster_chain::ClusterChain;
 use vfat::dir::VFatDirEntry;
 use vfat::dir::RawDirIterator;
+use arc_mutex::ArcMutex;
 
 mod mock {
     use std::io::{Read, Write, Seek, Result, SeekFrom};
@@ -105,11 +106,11 @@ fn hash_for(name: &str) -> String {
     string
 }
 
-fn vfat_from_resource(name: &str) -> Shared<VFatFileSystem> {
+fn vfat_from_resource(name: &str) -> ArcMutex<VFatFileSystem> {
     VFatFileSystem::from(Box::new(load_partition(name))).expect("failed to initialize VFAT from image")
 }
 
-//fn vfat_from_block_device<T: BlockDevice + 'static>(block_device: T) -> Shared<VFat> {
+//fn vfat_from_block_device<T: BlockDevice + 'static>(block_device: T) -> ArcMutex<VFat> {
 //    VFat::from(get_partition(block_device, 0).expect("get_partition failed")).expect("failed to initialize VFAT from image")
 //}
 
@@ -249,7 +250,7 @@ fn hash_dir<T: Dir>(
     Ok(entries)
 }
 
-fn hash_dir_from<P: AsRef<Path>>(vfat: Shared<VFatFileSystem>, path: P) -> String {
+fn hash_dir_from<P: AsRef<Path>>(vfat: ArcMutex<VFatFileSystem>, path: P) -> String {
     let mut hash = String::new();
     hash_dir(&mut hash, vfat.open_dir(path).expect("directory exists")).unwrap();
     hash
@@ -272,7 +273,7 @@ fn test_root_entries() {
 
 fn hash_dir_recursive<P: AsRef<Path>>(
     hash: &mut String,
-    vfat: Shared<VFatFileSystem>,
+    vfat: ArcMutex<VFatFileSystem>,
     path: P
 ) -> ::std::fmt::Result {
     use std::fmt::Write;
@@ -294,7 +295,7 @@ fn hash_dir_recursive<P: AsRef<Path>>(
     Ok(())
 }
 
-fn hash_dir_recursive_from<P: AsRef<Path>>(vfat: Shared<VFatFileSystem>, path: P) -> String {
+fn hash_dir_recursive_from<P: AsRef<Path>>(vfat: ArcMutex<VFatFileSystem>, path: P) -> String {
     let mut hash = String::new();
     hash_dir_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -346,7 +347,7 @@ fn hash_file<T: File>(hash: &mut String, mut file: T) -> ::std::fmt::Result {
 
 fn hash_files_recursive<P: AsRef<Path>>(
     hash: &mut String,
-    vfat: Shared<VFatFileSystem>,
+    vfat: ArcMutex<VFatFileSystem>,
     path: P
 ) -> ::std::fmt::Result {
     let path = path.as_ref();
@@ -375,7 +376,7 @@ fn hash_files_recursive<P: AsRef<Path>>(
     Ok(())
 }
 
-fn hash_files_recursive_from<P: AsRef<Path>>(vfat: Shared<VFatFileSystem>, path: P) -> String {
+fn hash_files_recursive_from<P: AsRef<Path>>(vfat: ArcMutex<VFatFileSystem>, path: P) -> String {
     let mut hash = String::new();
     hash_files_recursive(&mut hash, vfat, path).unwrap();
     hash
@@ -408,7 +409,7 @@ fn test_mock4_files_recursive() {
 #[test]
 fn shared_fs_is_sync_send_static() {
     fn f<T: Sync + Send + 'static>() {  }
-    f::<Shared<VFatFileSystem>>();
+    f::<ArcMutex<VFatFileSystem>>();
 }
 
 #[test]
@@ -446,7 +447,7 @@ fn block_device_read_by_offset() {
 fn vfat_fields() {
     let vfat = vfat_from_resource("mock1.fat32.img");
     {
-        let mut vfat = vfat.borrow_mut();
+        let mut vfat = vfat.lock();
         assert_eq!(vfat.device.sector_size(), 512);
         assert_eq!(vfat.bytes_per_sector, 512);
         assert_eq!(vfat.sectors_per_cluster, 1);
@@ -464,7 +465,7 @@ fn vfat_fields() {
         assert_eq!(buffer, bytes);
     }
 
-    let fat = vfat.borrow().fat();
+    let fat = vfat.lock().fat();
     let entry = fat.get_next_in_chain(2).unwrap();
     assert_eq!(entry, None);
 
@@ -693,18 +694,18 @@ fn vfat_create_last_entry() {
     let dir_path = "/rpi3-docs";
     let dir = vfat.open_dir(dir_path).unwrap();
 
-    assert_eq!(RawDirIterator { dir: &mut dir.0.lock().unwrap(), raw_index: 0}.count().unwrap(), 10);
+    assert_eq!(RawDirIterator { dir: &mut dir.0.lock(), raw_index: 0}.count().unwrap(), 10);
 
     let garbage: VFatDirEntry = unsafe { ::std::mem::transmute([0x42u8; VFatDirEntry::SIZE]) };
     for i in 11..16 {
-        dir.0.lock().unwrap().set_raw_entry(i, &garbage).unwrap();
+        dir.0.lock().set_raw_entry(i, &garbage).unwrap();
     }
 
     vfat.create_file("/rpi3-docs/1234567890123456").unwrap();
 
-    assert_eq!(RawDirIterator { dir: &mut dir.0.lock().unwrap(), raw_index: 0}.count().unwrap(), 13);
+    assert_eq!(RawDirIterator { dir: &mut dir.0.lock(), raw_index: 0}.count().unwrap(), 13);
 //    let mut i = 0;
-//    while let Some(entry) = dir.0.lock().unwrap().get_raw_entry(i).unwrap() {
+//    while let Some(entry) = dir.0.lock().get_raw_entry(i).unwrap() {
 //        println!("entry i={} valid={}", i, entry.is_valid());
 //        i += 1;
 //    }

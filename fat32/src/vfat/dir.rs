@@ -1,6 +1,6 @@
 use std::io;
 
-use vfat::{VFatFileSystem, Shared, VFatEntry};
+use vfat::{VFatFileSystem, VFatEntry};
 use std::mem;
 use std::io::{Read, Write, Seek, SeekFrom};
 use fallible_iterator::FallibleIterator;
@@ -9,13 +9,12 @@ use vfat::metadata::VFatMetadata;
 use vfat::metadata::Attributes;
 use vfat::cluster_chain::ClusterChain;
 use vfat::lock_manager::LockMode;
-use std::sync::Arc;
-use std::sync::Mutex;
 use chrono::{Datelike, Timelike};
 use std::ops::RangeInclusive;
+use arc_mutex::ArcMutex;
 
 pub struct VFatDir {
-    pub(crate) vfat: Shared<VFatFileSystem>,
+    pub(crate) vfat: ArcMutex<VFatFileSystem>,
     pub(crate) chain: ClusterChain,
 
     #[allow(unused)]
@@ -23,7 +22,7 @@ pub struct VFatDir {
 }
 
 #[derive(Clone)]
-pub struct SharedVFatDir(pub(crate) Arc<Mutex<VFatDir>>);
+pub struct SharedVFatDir(pub(crate) ArcMutex<VFatDir>);
 
 #[derive(Debug)]
 pub(crate) struct VFatSimpleDirEntry {
@@ -192,13 +191,13 @@ impl VFatDirEntry {
 
 
 impl VFatDir {
-    pub fn open(vfat: Shared<VFatFileSystem>, first_cluster: u32, entry: Option<VFatEntry>) -> Option<SharedVFatDir> {
+    pub fn open(vfat: ArcMutex<VFatFileSystem>, first_cluster: u32, entry: Option<VFatEntry>) -> Option<SharedVFatDir> {
         ClusterChain::open(vfat.clone(), first_cluster, LockMode::Write).map(|chain| {
-            SharedVFatDir(Arc::new(Mutex::new(VFatDir {
+            SharedVFatDir(ArcMutex::new(VFatDir {
                 chain,
                 vfat: vfat.clone(),
                 entry,
-            })))
+            }))
         })
     }
 
@@ -418,7 +417,7 @@ impl VFatDir {
             self.set_raw_entry(0, &dot_entry.as_union())?;
 
             let parent_dir = self.entry.as_ref().unwrap().parent();
-            let parent_first_cluster = parent_dir.0.lock().unwrap().chain.first_cluster;
+            let parent_first_cluster = parent_dir.0.lock().chain.first_cluster;
             let dotdot_metadata = VFatMetadata {
                 first_cluster: parent_first_cluster,
                 ..dot_metadata
@@ -492,8 +491,8 @@ impl FallibleIterator for DirIterator {
     type Error = io::Error;
 
     fn next(&mut self) -> io::Result<Option<VFatEntry>> {
-        let vfat = self.dir.0.lock().unwrap().vfat.clone();
-        while let Some(simple_entry) = self.dir.0.lock().unwrap().next_simple_entry(self.index)? {
+        let vfat = self.dir.0.lock().vfat.clone();
+        while let Some(simple_entry) = self.dir.0.lock().next_simple_entry(self.index)? {
             self.index = simple_entry.entry_index_range.end + 1;
             if simple_entry.metadata.attributes.is_volume_id() { // skip volume id
                 continue;
@@ -521,13 +520,13 @@ impl Dir for SharedVFatDir {
     }
 
     fn entry(&self) -> Option<VFatEntry> {
-        self.0.lock().unwrap().entry.as_ref().map(|e| e.clone())
+        self.0.lock().entry.as_ref().map(|e| e.clone())
     }
 }
 
 impl SharedVFatDir {
-    fn convert_entry(&self, raw_entry: VFatSimpleDirEntry, vfat: Shared<VFatFileSystem>) -> VFatEntry {
-        let ref_guard = vfat.borrow().lock_manager().lock(raw_entry.metadata.first_cluster, LockMode::Ref);
+    fn convert_entry(&self, raw_entry: VFatSimpleDirEntry, vfat: ArcMutex<VFatFileSystem>) -> VFatEntry {
+        let ref_guard = vfat.lock().lock_manager().lock(raw_entry.metadata.first_cluster, LockMode::Ref);
         VFatEntry {
             name: raw_entry.name,
             metadata: raw_entry.metadata,
@@ -538,7 +537,7 @@ impl SharedVFatDir {
     }
 
     pub fn create_entry(&self, file_name: &str, metadata: &VFatMetadata) -> io::Result<VFatEntry> {
-        let mut dir = self.0.lock().unwrap();
+        let mut dir = self.0.lock();
         let raw_entry = dir.create_entry(file_name, metadata)?;
 
         Ok(self.convert_entry(raw_entry, dir.vfat.clone()))

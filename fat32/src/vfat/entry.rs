@@ -4,11 +4,11 @@ use std::io;
 use vfat::lock_manager::FSObjectGuard;
 use vfat::VFatFile;
 use vfat::lock_manager::LockMode;
-use vfat::Shared;
 use vfat::VFatFileSystem;
 use traits::FileOpenMode;
 use vfat::dir::SharedVFatDir;
 use std::ops::RangeInclusive;
+use arc_mutex::ArcMutex;
 
 pub struct VFatEntry {
     pub(crate) name: String,
@@ -21,24 +21,24 @@ pub struct VFatEntry {
 }
 
 impl VFatEntry {
-    pub(crate) fn vfat(&self) -> Shared<VFatFileSystem> {
-        self.dir.0.lock().unwrap().vfat.clone()
+    pub(crate) fn vfat(&self) -> ArcMutex<VFatFileSystem> {
+        self.dir.0.lock().vfat.clone()
     }
 
     pub(crate) fn set_file_size(&mut self, size: u32) -> io::Result<()> {
         assert!(!self.metadata.is_dir());
-        self.dir.0.lock().unwrap().set_file_size(self.dir_entry_index_range.end, size)
+        self.dir.0.lock().set_file_size(self.dir_entry_index_range.end, size)
     }
 
     pub(crate) fn current_file_size(&self) -> io::Result<u32> {
-        self.dir.0.lock().unwrap().get_file_size(self.dir_entry_index_range.end)
+        self.dir.0.lock().get_file_size(self.dir_entry_index_range.end)
     }
 }
 
 impl Clone for VFatEntry {
     fn clone(&self) -> Self {
         let vfat = self.vfat();
-        let ref_guard = vfat.borrow().lock_manager().lock(self.metadata.first_cluster, LockMode::Ref);
+        let ref_guard = vfat.lock().lock_manager().lock(self.metadata.first_cluster, LockMode::Ref);
         Self {
             name: self.name.clone(),
             metadata: self.metadata.clone(),

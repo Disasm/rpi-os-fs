@@ -76,7 +76,7 @@ impl io::Write for VFatFile {
             self.entry.set_file_size(self.size)?;
             self.old_size = self.size;
         }
-        self.chain.vfat.borrow_mut().device.sync()?;
+        self.chain.vfat.lock().device.sync()?;
         Ok(())
     }
 }

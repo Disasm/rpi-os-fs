@@ -1,10 +1,10 @@
 use std::fmt;
 use std::io;
 use traits::BlockDevice;
-use std::sync::{Arc, Mutex};
 use vfat::logical_block_device::SharedLogicalBlockDevice;
 use vfat::BiosParameterBlock;
 use byteorder::{LittleEndian, ByteOrder};
+use arc_mutex::ArcMutex;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Status {
@@ -143,34 +143,34 @@ impl Fat {
 }
 
 #[derive(Clone)]
-pub struct SharedFat(Arc<Mutex<Fat>>);
+pub struct SharedFat(ArcMutex<Fat>);
 
 impl SharedFat {
     pub fn new(device: &SharedLogicalBlockDevice, params: &BiosParameterBlock) -> Self {
         let fat = Fat {
             fats: (0..params.number_of_fats).map(|i| SingleFat::new(device.clone(), params, i)).collect(),
         };
-        SharedFat(Mutex::new(fat).into())
+        SharedFat(ArcMutex::new(fat))
     }
 
-    pub(crate) fn try_unwrap(self) -> Result<Mutex<Fat>, Arc<Mutex<Fat>>> {
-        Arc::try_unwrap(self.0)
+    pub(crate) fn unwrap(self) -> ArcMutex<Fat> {
+        self.0
     }
 
     pub fn new_chain(&mut self) -> io::Result<u32> {
-        let mut fat = self.0.lock().unwrap();
+        let mut fat = self.0.lock();
         fat.alloc(0xFFFFFFF)
     }
 
     pub fn alloc_for_chain(&mut self, last_cluster: u32) -> io::Result<u32> {
-        let mut fat = self.0.lock().unwrap();
+        let mut fat = self.0.lock();
         let new_last_cluster = fat.alloc(0xFFFFFFF)?;
         fat.set(last_cluster, new_last_cluster)?;
         Ok(new_last_cluster)
     }
 
     pub fn get_next_in_chain(&self, cluster: u32) -> io::Result<Option<u32>> {
-        let fat = self.0.lock().unwrap();
+        let fat = self.0.lock();
         match fat.get(cluster)?.status() {
             Status::Data(next) => Ok(Some(next)),
             Status::Eoc(_) => Ok(None),
@@ -179,14 +179,14 @@ impl SharedFat {
     }
 
     pub fn free_chain(&mut self, first_cluster: u32) -> io::Result<()> {
-        let mut fat = self.0.lock().unwrap();
+        let mut fat = self.0.lock();
         fat.free_chain(first_cluster)
     }
 
     // TODO: add set_len to File
     #[allow(dead_code)]
     pub fn truncate_chain(&mut self, last_cluster: u32) -> io::Result<()> {
-        let mut fat = self.0.lock().unwrap();
+        let mut fat = self.0.lock();
         match fat.get(last_cluster)?.status() {
             Status::Data(next) => {
                 fat.free_chain(next)?;

@@ -1,18 +1,18 @@
 use vfat::{VFatFile, VFatDir};
 use vfat::VFatEntry;
-use vfat::Shared;
+use vfat::ArcMutex;
 use vfat::VFatFileSystem;
 use traits::FileSystemObject;
 
 pub struct VFatObject {
-    vfat: Shared<VFatFileSystem>,
+    vfat: ArcMutex<VFatFileSystem>,
     first_cluster: u32,
     size: u32,
     is_dir: bool,
 }
 
 impl VFatObject {
-    pub fn from_entry(vfat: Shared<VFatFileSystem>, entry: &VFatEntry) -> Self {
+    pub fn from_entry(vfat: ArcMutex<VFatFileSystem>, entry: &VFatEntry) -> Self {
         Self {
             vfat,
             first_cluster: entry.metadata.first_cluster,
@@ -21,8 +21,8 @@ impl VFatObject {
         }
     }
 
-    pub fn root(vfat: Shared<VFatFileSystem>) -> Self {
-        let first_cluster = vfat.borrow().root_dir_cluster;
+    pub fn root(vfat: ArcMutex<VFatFileSystem>) -> Self {
+        let first_cluster = vfat.lock().root_dir_cluster;
         Self {
             vfat,
             first_cluster,
